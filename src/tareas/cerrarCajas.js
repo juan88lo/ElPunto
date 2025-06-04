@@ -24,7 +24,7 @@ module.exports = async function cerrarCajasAutomaticamente(models) {
     await caja.update({
       fechaCierre: new Date(),
       estado: 'cerrada',
-      usuarioCierreId: 4,
+      usuarioCierreId: process.env.UsuarioSystem,
       montoSistema,
       montoReal: montoSistema,
       diferencia: 0
@@ -34,7 +34,7 @@ module.exports = async function cerrarCajasAutomaticamente(models) {
       entidad: 'caja',
       entidadId: caja.id,
       accion: 'cerrar',
-      usuarioId: 4,
+      usuarioId: process.env.UsuarioSystem,
       detalle: 'Cerrado automáticamente por el sistema'
     });
   }

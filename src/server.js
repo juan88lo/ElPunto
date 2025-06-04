@@ -62,8 +62,9 @@ const server = new ApolloServer({
 
     // Crear servidor HTTP
     const httpServer = createServer(app);
-    httpServer.listen({ port: 4000 }, () => {
-      console.log(`🚀 Servidor GraphQL listo en http://localhost:4000${server.graphqlPath}`);
+    const PORT = process.env.PORT || 4000;
+    httpServer.listen({ port: PORT }, () => {
+      console.log(`🚀 Servidor GraphQL listo en http://localhost:${PORT}${server.graphqlPath}`);
     });
   } catch (error) {
     console.error('❌ Error al iniciar el servidor:', error);

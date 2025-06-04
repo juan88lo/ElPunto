@@ -1361,8 +1361,7 @@ const RootMutation = new GraphQLObjectType({
         const montoSistema = montoInicial + totalVentas;
 
         const diferencia = Number(montoReal) - montoSistema;
-
-        // 3️⃣ actualizar caja (ahora con valores válidos)
+ 
         await caja.update({
           fechaCierre: new Date(),
           usuarioCierreId: context.usuario.id,
@@ -1371,8 +1370,7 @@ const RootMutation = new GraphQLObjectType({
           diferencia,
           estado: 'cerrada',
         });
-
-        // 4️⃣ bitácora
+ 
         await Bitacora.create({
           entidad: 'caja',
           entidadId: caja.id,
@@ -1567,8 +1565,7 @@ const RootMutation = new GraphQLObjectType({
             },
             { transaction: t }
           );
-
-          // ─── 4. Crear líneas + actualizar inventario ───
+ 
           for (const d of detalles) {
 
             await FacturaDetalle.create(
@@ -1836,8 +1833,7 @@ const RootMutation = new GraphQLObjectType({
         if (!(await ctx.verificarPermiso('crear_nota_credito')))
           throw new Error('Sin permiso');
 
-        return sequelize.transaction(async (t) => {
-          /* 1️⃣  Cargar factura + líneas */
+        return sequelize.transaction(async (t) => { 
           const factura = await Factura.findByPk(facturaId, {
             include: [{ model: FacturaDetalle, as: 'DetalleFacturas' }],
             lock: t.LOCK.UPDATE,
@@ -1845,8 +1841,7 @@ const RootMutation = new GraphQLObjectType({
           });
           if (!factura) throw new Error('Factura no existe');
           if (factura.estado !== 'emitida') throw new Error('Solo facturas emitidas');
-
-          /* 2️⃣  Crear cabecera NC */
+ 
           const nota = await NotaCredito.create({
             facturaId,
             usuarioId: ctx.usuario.id,
@@ -1855,8 +1850,7 @@ const RootMutation = new GraphQLObjectType({
             total: factura.total,
             estado: 'emitida',
           }, { transaction: t });
-
-          /* 3️⃣  Crear renglones NC y devolver inventario */
+ 
           for (const l of factura.DetalleFacturas) {
             await DetalleNotaCredito.create({
               notaCreditoId: nota.id,
@@ -1870,17 +1864,14 @@ const RootMutation = new GraphQLObjectType({
             const prod = await Inventario.findByPk(l.inventarioId, { transaction: t });
             await prod.agregarExistencias(l.cantidad, { transaction: t });
           }
-
-          /* 4️⃣  Cambiar estado de factura */
+ 
           await factura.update({ estado: 'anulada' }, { transaction: t });
-
-          /* 5️⃣  Ajustar caja (restar venta) */
+ 
           await Caja.decrement(
             { totalVentas: factura.total, montoSistema: factura.total },
             { where: { id: factura.cajaId }, transaction: t }
           );
-
-          /* 6️⃣  Bitácora */
+ 
           await Bitacora.bulkCreate([
             {
               entidad: 'nota_credito',
@@ -1911,22 +1902,18 @@ const RootMutation = new GraphQLObjectType({
       args: {
         // aquí puedes definir los argumentos si los necesitas
       },
-      resolve: async (_, args, ctx) => {
-        // 1⃣ reutiliza la lógica que ya arma los rows
+      resolve: async (_, args, ctx) => { 
         const items = await invQuery.reporteInventario(_, args, ctx);
-
-        // 2⃣ renderiza HTML
+ 
         const html = await renderTemplate('inventario', {
           fecha: new Date().toLocaleString('es-CR'),
           items,
         });
-
-        // 3⃣ genera archivo
+ 
         const fileName = `inventario_${uuid()}.pdf`;
         const outPath = path.join(__dirname, '../../generated', fileName);
         await generatePdf(html, outPath);
-
-        // 4⃣ devuelve URL pública
+ 
         return `/archivos/${fileName}`;
 
       }
