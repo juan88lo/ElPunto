@@ -46,37 +46,39 @@ Inventario.init({
     allowNull: false,
     defaultValue: 0,
   },
-}, {
-  sequelize,
-  modelName: 'Inventario',
-  tableName: 'Inventarios',
-  timestamps: false,
-  hooks: {
-    // Hook antes de guardar (crear o actualizar)
-    async beforeSave(item) {
-      const rate = item.tasaImpuesto ?? 0.13; // usa 0.13 si no viene definido
-      const base = +(item.precioFinalVenta / (1 + rate)).toFixed(2);
-      const tax = +(item.precioFinalVenta - base).toFixed(2);
+},
+  {
+    sequelize,
+    modelName: 'Inventario',
+    tableName: 'Inventarios',
+    timestamps: false,
+    // hooks: {
+    //   // Hook antes de guardar (crear o actualizar)
+    //   async beforeSave(item) {
+    //     const rate = item.tasaImpuesto ?? 0.13; // usa 0.13 si no viene definido
+    //     const base = +(item.precioFinalVenta / (1 + rate)).toFixed(2);
+    //     const tax = +(item.precioFinalVenta - base).toFixed(2);
 
-      item.precioCostoSinImpuesto = base;
-      // item.impuestoPorProducto = tax;
-    },
+    //     item.precioCostoSinImpuesto = base;
+    //     // item.impuestoPorProducto = tax;
+    //   },
 
-    // Hook después de actualizar
-    async afterUpdate(item, options) {
-      const antes = item._previousDataValues.cantidadExistencias;
-      const ahora = item.cantidadExistencias;
+    //   // Hook después de actualizar
+    //   async afterUpdate(item, options) {
+    //     const antes = item._previousDataValues.cantidadExistencias;
+    //     const ahora = item.cantidadExistencias;
 
-      if (antes >= 10 && ahora < 10) {
-        await sequelize.models.AlertaStock.create({
-          inventarioId: item.id,
-          cantidadActual: ahora,
-          enviado: false,
-        });
-      }
-    },
-  },
-});
+    //     if (antes >= 10 && ahora < 10) {
+    //       await sequelize.models.AlertaStock.create({
+    //         inventarioId: item.id,
+    //         cantidadActual: ahora,
+    //         enviado: false,
+    //       });
+    //     }
+    //   },
+    // },
+  }
+);
 
 Inventario.prototype.agregarExistencias = async function (cant, opt) {
   this.cantidadExistencias += Number(cant);

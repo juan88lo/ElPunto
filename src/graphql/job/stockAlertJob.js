@@ -5,10 +5,11 @@ const { AlertaStock, Inventario } = require('../../models');
 
 // transport con tu SMTP
 const transporter = nodemailer.createTransport({
-  host: 'smtp.tu-dominio.com',
-  port: 465,
-  secure: true,
-  auth: { user: 'alertas@tu-dominio.com', pass: 'xxxx' }
+  service: 'hotmail',
+  auth: {
+    user: 'juan-luis3@hotmail.com',
+    pass: 'Juan18061992lo'
+  }
 });
 
 cron.schedule('0 * * * *', async () => { // cada hora

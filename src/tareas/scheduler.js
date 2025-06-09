@@ -4,7 +4,7 @@ const cerrarCajas = require('./cerrarCajas');
 
 module.exports = (db) => {
   // —programación real (cada día a las 12-00 hora de Costa Rica)—
-  cron.schedule('0 12 * * *', () => cerrarCajas(db), {
+  cron.schedule('0 2 * * *', () => cerrarCajas(db), {
     timezone: 'America/Costa_Rica'
   });
 
