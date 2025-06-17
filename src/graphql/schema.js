@@ -22,7 +22,7 @@ const {
   Familia,
   Proveedor,
   Inventario,
-  ConsecutivoFactura, NotaCredito, DetalleNotaCredito
+  ConsecutivoFactura, NotaCredito, DetalleNotaCredito, PagoProveedor, Planilla, VacacionTomada
 } = require('../models');
 const { Empleado } = require('../models');
 const { DetalleFactura: FacturaDetalle } = require('../models');
@@ -31,6 +31,7 @@ const jwt = require('jsonwebtoken');
 const { Caja, Factura, Bitacora } = require('../models');
 const { sequelize, Sequelize } = require('../models/baseModel');
 const { Op, fn, col, literal } = require('sequelize');
+const e = require('cors');
 
 
 const DetalleNotaCreditoType = new GraphQLObjectType({
@@ -106,7 +107,7 @@ const EmpleadoType = new GraphQLObjectType({
     puesto: { type: GraphQLString },
     salarioBase: { type: GraphQLFloat },
     fechaIngreso: { type: GraphQLString },
-    diasVacaciones: { type: GraphQLInt },
+    diasVacaciones: { type: GraphQLFloat },
     estado: { type: GraphQLBoolean },
   }),
 });
@@ -116,13 +117,13 @@ const PagoProveedorType = new GraphQLObjectType({
   fields: () => ({
     id: { type: GraphQLID },
     proveedorId: { type: GraphQLID },
-    fechaPago: { type: GraphQLString }, // o GraphQLDate si usás una lib externa
+    fechaPago: { type: GraphQLString },
     monto: { type: GraphQLFloat },
     metodo: { type: GraphQLString },
     referencia: { type: GraphQLString },
     pagado: { type: GraphQLBoolean },
     observacion: { type: GraphQLString },
-    proveedor: { type: ProveedorOutputType }, // Relación con el proveedor
+    proveedor: { type: ProveedorOutputType },
   })
 });
 
@@ -274,6 +275,14 @@ const UsuarioType = new GraphQLObjectType({
         return rol ? rol.getPermisos() : [];
       }
     },
+    estado: {
+      type: GraphQLBoolean,
+      resolve: (parent) => parent.estado === true || parent.estado === 1 || parent.estado === '1'
+    },
+    empleado: {
+      type: EmpleadoType,
+      resolve: (parent) => parent.getEmpleado() ? parent.getEmpleado() : null
+    },
   }),
 });
 
@@ -296,7 +305,7 @@ const ConfiguracionInput = new GraphQLInputObjectType({
     valor: { type: new GraphQLNonNull(GraphQLFloat) },
     prioridad: { type: new GraphQLNonNull(GraphQLInt) },
     estado: { type: new GraphQLNonNull(GraphQLBoolean) },
-    pantalla: { type: new GraphQLNonNull(GraphQLString) },          //  ⬅️  añadir si lo usas
+    pantalla: { type: new GraphQLNonNull(GraphQLString) },
   },
 });
 const FamiliaType = new GraphQLObjectType({
@@ -340,21 +349,23 @@ const ProveedorInputType = new GraphQLInputObjectType({
     nombre: { type: new GraphQLNonNull(GraphQLString) },
     TelCelular: { type: new GraphQLNonNull(GraphQLString) },
     TelOtro: { type: GraphQLString },
-    AgenteAsignado: { type: new GraphQLNonNull(GraphQLString) },
-    TelefonoAgente: { type: new GraphQLNonNull(GraphQLString) },
-    Supervisor: { type: new GraphQLNonNull(GraphQLString) },
-    TelSupervisor: { type: new GraphQLNonNull(GraphQLString) },
-    Frecuencia: { type: new GraphQLNonNull(GraphQLString) },
-    DiasVisita: { type: new GraphQLNonNull(GraphQLString) },
-    DiaEntrega: { type: new GraphQLNonNull(GraphQLString) },
-    Simpe: { type: new GraphQLNonNull(GraphQLString) },
-    SimpeNombre: { type: new GraphQLNonNull(GraphQLString) },
-    CuentaBancaria: { type: new GraphQLNonNull(GraphQLString) },
-    Banco: { type: new GraphQLNonNull(GraphQLString) },
-    NombrePropietarioCtaBancaria: { type: new GraphQLNonNull(GraphQLString) },
+    AgenteAsignado: { type: GraphQLString },
+    TelefonoAgente: { type: GraphQLString },
+    Supervisor: { type: GraphQLString },
+    TelSupervisor: { type: GraphQLString },
+    Frecuencia: { type: GraphQLString },
+    DiasVisita: { type: GraphQLString },
+    DiaEntrega: { type: GraphQLString },
+    Simpe: { type: GraphQLString },
+    SimpeNombre: { type: GraphQLString },
+    CuentaBancaria: { type: GraphQLString },
+    Banco: { type: GraphQLString },
+    NombrePropietarioCtaBancaria: { type: GraphQLString },
     Otros: { type: GraphQLString },
     Observaciones: { type: GraphQLString },
-    Estado: { type: GraphQLBoolean },
+    Estado: {
+      type: GraphQLBoolean
+    },
   }),
 });
 
@@ -436,6 +447,33 @@ const InventarioReporteItemType = new GraphQLObjectType({
     precioVenta: { type: new GraphQLNonNull(GraphQLFloat) },
     margenUnitario: { type: new GraphQLNonNull(GraphQLFloat) }
   }
+});
+
+const PlanillaType = new GraphQLObjectType({
+  name: 'Planilla',
+  fields: () => ({
+    id: { type: GraphQLID },
+    empleado: { type: EmpleadoType },
+    empleadoId: { type: GraphQLID },
+    fechaInicio: { type: GraphQLString },
+    fechaFin: { type: GraphQLString },
+    salarioBruto: { type: GraphQLFloat },
+    deducciones: { type: GraphQLFloat },
+    salarioNeto: { type: GraphQLFloat },
+    pagado: { type: GraphQLBoolean }
+  })
+});
+
+const VacacionTomadaType = new GraphQLObjectType({
+  name: 'VacacionTomada',
+  fields: () => ({
+    id: { type: GraphQLID },
+    empleado: { type: EmpleadoType },
+    empleadoId: { type: GraphQLID },
+    dias: { type: GraphQLFloat },
+    fecha: { type: GraphQLString },
+    estado: { type: GraphQLString },
+  }),
 });
 
 
@@ -814,6 +852,59 @@ const RootQuery = new GraphQLObjectType({
         });
       }
     },
+
+    empleados: {
+      type: new GraphQLList(EmpleadoType),
+      resolve: async (_, __, context) => {
+        if (!(await context.verificarPermiso('ver_empleados'))) {
+          throw new Error('Sin permiso para ver empleados');
+        }
+        return await Empleado.findAll();
+      },
+    },
+
+    pagosProveedores: {
+      type: new GraphQLList(PagoProveedorType),
+      resolve: async (_, __, context) => {
+        if (!(await context.verificarPermiso('ver_pagoproveedores'))) {
+          throw new Error('Sin permiso para ver pagos a proveedores');
+        }
+        return await PagoProveedor.findAll({
+          include: [{ model: Proveedor, as: 'proveedor' }],
+          order: [['fechaPago', 'DESC']],
+        });
+      },
+    },
+
+    planillas: {
+      type: new GraphQLList(PlanillaType),
+      resolve: async (_, __, context) => {
+        if (!(await context.verificarPermiso('ver_planillas'))) {
+          throw new Error('Sin permiso para ver planillas');
+        }
+        return await Planilla.findAll({ include: [{ model: Empleado, as: 'empleado' }] });
+      }
+    },
+
+    vacacionesTomadas: {
+      type: new GraphQLList(VacacionTomadaType),
+      resolve: async (_, __, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        const usuario = await Usuario.findByPk(context.usuario.id, { include: ['empleado'] });
+
+        // Si es admin, ve todas
+        if (usuario.tipoUsuarioId === 1) {
+          return VacacionTomada.findAll({ include: [{ model: Empleado, as: 'empleado' }] });
+        }
+
+        // Si no, solo las del empleado relacionado
+        if (!usuario.empleadoId) throw new Error('No tiene empleado asociado');
+        return VacacionTomada.findAll({
+          where: { empleadoId: usuario.empleadoId },
+          include: [{ model: Empleado, as: 'empleado' }]
+        });
+      }
+    },
   }
 });
 
@@ -828,12 +919,14 @@ const RootMutation = new GraphQLObjectType({
         correo: { type: new GraphQLNonNull(GraphQLString) },
         password: { type: new GraphQLNonNull(GraphQLString) },
         tipoUsuarioId: { type: new GraphQLNonNull(GraphQLID) },
+        empleadoId: { type: GraphQLID },
+        estado: { type: GraphQLBoolean },
       },
-      resolve: async (_, { nombre, correo, password, tipoUsuarioId }, context) => {
+      resolve: async (_, { nombre, correo, password, tipoUsuarioId, empleadoId, estado }, context) => {
         if (!await context.verificarPermiso('crear_usuario')) throw new Error('Sin permiso');
         if (await Usuario.findOne({ where: { correo } })) throw new Error('Correo ya en uso');
         const hashed = await bcrypt.hash(password, 10);
-        return Usuario.create({ nombre, correo, password: hashed, tipoUsuarioId });
+        return Usuario.create({ nombre, correo, password: hashed, tipoUsuarioId, empleadoId, estado });
       }
     },
 
@@ -845,8 +938,10 @@ const RootMutation = new GraphQLObjectType({
         correo: { type: GraphQLString },
         password: { type: GraphQLString },
         tipoUsuarioId: { type: GraphQLID },
+        empleadoId: { type: GraphQLID },
+        estado: { type: GraphQLBoolean },
       },
-      resolve: async (_, { id, nombre, correo, password, tipoUsuarioId }, context) => {
+      resolve: async (_, { id, nombre, correo, password, tipoUsuarioId, empleadoId, estado }, context) => {
         if (!await context.verificarPermiso('editar_usuario')) throw new Error('Sin permiso');
 
         const usuario = await Usuario.findByPk(id);
@@ -857,9 +952,15 @@ const RootMutation = new GraphQLObjectType({
           if (existente) throw new Error('Correo ya en uso');
         }
 
-        if (password) password = await bcrypt.hash(password, 10);
+        const updateFields = {};
+        if (nombre !== undefined) updateFields.nombre = nombre;
+        if (correo !== undefined) updateFields.correo = correo;
+        if (tipoUsuarioId !== undefined) updateFields.tipoUsuarioId = tipoUsuarioId;
+        if (empleadoId !== undefined) updateFields.empleadoId = empleadoId;
+        if (estado !== undefined) updateFields.estado = estado;
+        if (password) updateFields.password = await bcrypt.hash(password, 10);
 
-        await usuario.update({ nombre, correo, password, tipoUsuarioId });
+        await usuario.update(updateFields);
 
         return usuario;
       }
@@ -891,7 +992,7 @@ const RootMutation = new GraphQLObjectType({
         // const user = await Usuario.findOne({ where: { correo } });
 
         const user = await Usuario.findOne({
-          where: { correo },
+          where: { correo, estado: true },
           include: [
             {                      // rol  → para luego exponer permisos en UsuarioType
               model: TipoUsuario,
@@ -902,7 +1003,7 @@ const RootMutation = new GraphQLObjectType({
         if (!user) throw new Error('Usuario no encontrado');
         if (!await bcrypt.compare(password, user.password)) throw new Error('Contraseña incorrecta');
         const token = jwt.sign(
-          { id: user.id, tipoUsuarioId: user.tipoUsuarioId },
+          { id: user.id, tipoUsuarioId: user.tipoUsuarioId, empleadoId: user.empleadoId },
           process.env.JWT_SECRET,
           { expiresIn: '1h' }
         );
@@ -1361,7 +1462,7 @@ const RootMutation = new GraphQLObjectType({
         const montoSistema = montoInicial + totalVentas;
 
         const diferencia = Number(montoReal) - montoSistema;
- 
+
         await caja.update({
           fechaCierre: new Date(),
           usuarioCierreId: context.usuario.id,
@@ -1370,7 +1471,7 @@ const RootMutation = new GraphQLObjectType({
           diferencia,
           estado: 'cerrada',
         });
- 
+
         await Bitacora.create({
           entidad: 'caja',
           entidadId: caja.id,
@@ -1565,7 +1666,7 @@ const RootMutation = new GraphQLObjectType({
             },
             { transaction: t }
           );
- 
+
           for (const d of detalles) {
 
             await FacturaDetalle.create(
@@ -1626,11 +1727,17 @@ const RootMutation = new GraphQLObjectType({
         puesto: { type: new GraphQLNonNull(GraphQLString) },
         salarioBase: { type: new GraphQLNonNull(GraphQLFloat) },
         fechaIngreso: { type: new GraphQLNonNull(GraphQLString) },
-        diasVacaciones: { type: GraphQLInt },
+        diasVacaciones: { type: GraphQLFloat },
+        estado: { type: GraphQLBoolean },
       },
       resolve: async (_, args, context) => {
         if (!(await context.verificarPermiso('crear_empleado'))) {
           throw new Error('Sin permiso para crear empleados');
+        }
+        // Validación de cédula única
+        const existe = await Empleado.findOne({ where: { cedula: args.cedula } });
+        if (existe) {
+          throw new Error('Ya existe un empleado con esa cédula');
         }
         return await Empleado.create(args);
       },
@@ -1644,7 +1751,7 @@ const RootMutation = new GraphQLObjectType({
         apellido: { type: GraphQLString },
         puesto: { type: GraphQLString },
         salarioBase: { type: GraphQLFloat },
-        diasVacaciones: { type: GraphQLInt },
+        diasVacaciones: { type: GraphQLFloat },
         estado: { type: GraphQLBoolean },
       },
       resolve: async (_, { id, ...campos }, context) => {
@@ -1683,6 +1790,55 @@ const RootMutation = new GraphQLObjectType({
       },
     },
 
+    crearPlanilla: {
+      type: PlanillaType,
+      args: {
+        empleadoId: { type: new GraphQLNonNull(GraphQLID) },
+        fechaInicio: { type: new GraphQLNonNull(GraphQLString) },
+        fechaFin: { type: new GraphQLNonNull(GraphQLString) },
+        salarioBruto: { type: new GraphQLNonNull(GraphQLFloat) },
+        deducciones: { type: GraphQLFloat },
+        salarioNeto: { type: new GraphQLNonNull(GraphQLFloat) }
+      },
+      resolve: async (_, args, context) => {
+        if (!(await context.verificarPermiso('crear_planilla'))) {
+          throw new Error('Sin permiso para crear planillas');
+        }
+        return await Planilla.create(args);
+      }
+    },
+
+    actualizarPlanilla: {
+      type: PlanillaType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        empleadoId: { type: GraphQLID },
+        fechaInicio: { type: GraphQLString },
+        fechaFin: { type: GraphQLString },
+        salarioBruto: { type: GraphQLFloat },
+        deducciones: { type: GraphQLFloat },
+        salarioNeto: { type: GraphQLFloat },
+        pagado: { type: GraphQLBoolean }
+      },
+      resolve: async (_, args, context) => {
+        if (!(await context.verificarPermiso('editar_planilla'))) {
+          throw new Error('Sin permiso para editar planillas');
+        }
+        const planilla = await Planilla.findByPk(args.id);
+        if (!planilla) throw new Error('Planilla no encontrada');
+        await planilla.update({
+          empleadoId: args.empleadoId ?? planilla.empleadoId,
+          fechaInicio: args.fechaInicio ?? planilla.fechaInicio,
+          fechaFin: args.fechaFin ?? planilla.fechaFin,
+          salarioBruto: args.salarioBruto ?? planilla.salarioBruto,
+          deducciones: args.deducciones ?? planilla.deducciones,
+          salarioNeto: args.salarioNeto ?? planilla.salarioNeto,
+          pagado: args.pagado ?? planilla.pagado
+        });
+        return planilla;
+      }
+    },
+
     eliminarPlanilla: {
       // evita borrar las ya pagadas
       type: GraphQLBoolean,
@@ -1706,6 +1862,7 @@ const RootMutation = new GraphQLObjectType({
         monto: { type: new GraphQLNonNull(GraphQLFloat) },
         metodo: { type: new GraphQLNonNull(GraphQLString) },
         referencia: { type: GraphQLString },
+        observacion: { type: GraphQLString }
       },
       resolve: async (_, args, context) => {
         if (!(await context.verificarPermiso('crear_pagoproveedor'))) {
@@ -1728,6 +1885,39 @@ const RootMutation = new GraphQLObjectType({
         );
         return !!filas;
       },
+    },
+
+
+    actualizarPagoProveedor: {
+      type: PagoProveedorType, // Devuelve el pago actualizado
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        proveedorId: { type: GraphQLID },
+        fechaPago: { type: GraphQLString },
+        monto: { type: GraphQLFloat },
+        metodo: { type: GraphQLString },
+        referencia: { type: GraphQLString },
+        observacion: { type: GraphQLString }
+      },
+      resolve: async (_, args, context) => {
+        if (!(await context.verificarPermiso('editar_pago_proveedor'))) {
+          throw new Error('Sin permiso para editar pago');
+        }
+        const pago = await PagoProveedor.findByPk(args.id);
+        if (!pago) throw new Error('Pago no encontrado');
+
+        // Solo actualiza los campos enviados
+        await pago.update({
+          proveedorId: args.proveedorId ?? pago.proveedorId,
+          fechaPago: args.fechaPago ?? pago.fechaPago,
+          monto: args.monto ?? pago.monto,
+          metodo: args.metodo ?? pago.metodo,
+          referencia: args.referencia ?? pago.referencia,
+          observacion: args.observacion ?? pago.observacion
+        });
+
+        return pago;
+      }
     },
 
     eliminarPagoProveedor: {
@@ -1796,8 +1986,10 @@ const RootMutation = new GraphQLObjectType({
       type: NotaCreditoType,
       args: { id: { type: new GraphQLNonNull(GraphQLID) } },
       resolve: async (_, { id }, { verificarPermiso }) => {
-        if (!(await verificarPermiso('anular_nota_credito')))
+        if (!ctx.usuario) throw new Error('No autenticado');
+        if (!(await ctx.verificarPermiso('anular_nota_credito')))
           throw new Error('Sin permiso');
+
 
         return sequelize.transaction(async (t) => {
           const nota = await NotaCredito.findByPk(id, {
@@ -1833,7 +2025,7 @@ const RootMutation = new GraphQLObjectType({
         if (!(await ctx.verificarPermiso('crear_nota_credito')))
           throw new Error('Sin permiso');
 
-        return sequelize.transaction(async (t) => { 
+        return sequelize.transaction(async (t) => {
           const factura = await Factura.findByPk(facturaId, {
             include: [{ model: FacturaDetalle, as: 'DetalleFacturas' }],
             lock: t.LOCK.UPDATE,
@@ -1841,7 +2033,7 @@ const RootMutation = new GraphQLObjectType({
           });
           if (!factura) throw new Error('Factura no existe');
           if (factura.estado !== 'emitida') throw new Error('Solo facturas emitidas');
- 
+
           const nota = await NotaCredito.create({
             facturaId,
             usuarioId: ctx.usuario.id,
@@ -1850,7 +2042,7 @@ const RootMutation = new GraphQLObjectType({
             total: factura.total,
             estado: 'emitida',
           }, { transaction: t });
- 
+
           for (const l of factura.DetalleFacturas) {
             await DetalleNotaCredito.create({
               notaCreditoId: nota.id,
@@ -1864,14 +2056,14 @@ const RootMutation = new GraphQLObjectType({
             const prod = await Inventario.findByPk(l.inventarioId, { transaction: t });
             await prod.agregarExistencias(l.cantidad, { transaction: t });
           }
- 
+
           await factura.update({ estado: 'anulada' }, { transaction: t });
- 
+
           await Caja.decrement(
             { totalVentas: factura.total, montoSistema: factura.total },
             { where: { id: factura.cajaId }, transaction: t }
           );
- 
+
           await Bitacora.bulkCreate([
             {
               entidad: 'nota_credito',
@@ -1902,23 +2094,114 @@ const RootMutation = new GraphQLObjectType({
       args: {
         // aquí puedes definir los argumentos si los necesitas
       },
-      resolve: async (_, args, ctx) => { 
+      resolve: async (_, args, ctx) => {
         const items = await invQuery.reporteInventario(_, args, ctx);
- 
+
         const html = await renderTemplate('inventario', {
           fecha: new Date().toLocaleString('es-CR'),
           items,
         });
- 
+
         const fileName = `inventario_${uuid()}.pdf`;
         const outPath = path.join(__dirname, '../../generated', fileName);
         await generatePdf(html, outPath);
- 
+
         return `/archivos/${fileName}`;
 
       }
     },
-  },
+
+    aprobarVacacion: {
+      type: VacacionTomadaType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        estado: { type: new GraphQLNonNull(GraphQLString) }, // 'aprobada' o 'rechazada'
+      },
+      resolve: async (_, { id, estado }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+
+        // Validar permisos (si es necesario)
+        // if (!(await context.verificarPermiso('aprobar_vacacion_tomada'))) {
+        //   throw new Error('Sin permiso para aprobar/rechazar');
+        // }
+
+        // Validar que el estado sea 'aprobada' o 'rechazada'
+        if (estado !== 'aprobada' && estado !== 'rechazada') {
+          throw new Error('Estado inválido. Solo puede ser "aprobada" o "rechazada".');
+        }
+
+        // Buscar la vacación con el ID proporcionado
+        const vacacion = await VacacionTomada.findByPk(id);
+        if (!vacacion) throw new Error('Vacación no encontrada');
+
+        // Actualizar el estado de la vacación
+        await vacacion.update({ estado });
+
+        // Retornar la vacación actualizada
+        return vacacion;
+      },
+    },
+
+    crearVacacionTomada: {
+      type: VacacionTomadaType,
+      args: {
+        empleadoId: { type: new GraphQLNonNull(GraphQLID) },
+        dias: { type: new GraphQLNonNull(GraphQLFloat) },
+        fecha: { type: new GraphQLNonNull(GraphQLString) },
+        estado: { type: GraphQLString },
+      },
+      resolve: async (_, args, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('crear_vacacion_tomada'))) {
+          throw new Error('Sin permiso');
+        }
+        return await VacacionTomada.create({
+          ...args,
+          estado: args.estado || 'pendiente',
+        });
+      },
+    },
+
+    actualizarVacacionTomada: {
+      type: VacacionTomadaType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        dias: { type: GraphQLFloat },
+        fecha: { type: GraphQLString },
+        estado: { type: GraphQLString },
+      },
+      resolve: async (_, { id, dias, fecha, estado }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('actualizar_vacacion_tomada'))) {
+          throw new Error('Sin permiso');
+        }
+        const vacacion = await VacacionTomada.findByPk(id);
+        if (!vacacion) throw new Error('Vacación no encontrada');
+        if (dias !== undefined) vacacion.dias = dias;
+        if (fecha !== undefined) vacacion.fecha = fecha;
+        if (estado !== undefined) vacacion.estado = estado;
+        await vacacion.save();
+        return vacacion;
+      },
+    },
+
+    eliminarVacacionTomada: {
+      type: GraphQLBoolean,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+      },
+      resolve: async (_, { id }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('eliminar_vacacion_tomada'))) {
+          throw new Error('Sin permiso');
+        }
+        const vacacion = await VacacionTomada.findByPk(id);
+        if (!vacacion) throw new Error('Vacación no encontrada');
+        await vacacion.destroy();
+        return true;
+      },
+    },
+  }
 });
 
 module.exports = new GraphQLSchema({

@@ -22,52 +22,51 @@ const Proveedor = sequelize.define('Proveedor', {
   },
   AgenteAsignado: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   TelefonoAgente: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   Supervisor: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   TelSupervisor: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   Frecuencia: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   DiasVisita: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   DiaEntrega: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   Simpe: {
     type: DataTypes.STRING,
-    allowNull: false, 
+    allowNull: true, 
   },
   SimpeNombre: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   CuentaBancaria: {
     type: DataTypes.STRING,
-    allowNull: false,
-  
+    allowNull: true,
   },
   Banco: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   NombrePropietarioCtaBancaria: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true,
   },
   Otros: {
     type: DataTypes.STRING,

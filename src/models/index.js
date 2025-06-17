@@ -19,6 +19,7 @@ const Empleado = require('./Empleado');
 const PagoProveedor = require('./PagoProveedor');
 const Planilla = require('./Planilla');
 const ConsecutivoFactura = require('./ConsecutivoFactura');
+const VacacionTomada = require('./VacacionesTomadas');
 // Relaciones existentes
 TipoUsuario.hasMany(Usuario, { foreignKey: 'tipoUsuarioId' });
 Usuario.belongsTo(TipoUsuario, { foreignKey: 'tipoUsuarioId' });
@@ -90,5 +91,6 @@ module.exports = {
   Empleado,
   PagoProveedor,
   Planilla,
-  ConsecutivoFactura
+  ConsecutivoFactura,
+  VacacionTomada
 };

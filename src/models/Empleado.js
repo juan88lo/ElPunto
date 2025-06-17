@@ -9,11 +9,13 @@ const Empleado = sequelize.define('Empleado', {
   puesto:        { type: DataTypes.STRING,   allowNull: false },
   salarioBase:   { type: DataTypes.DECIMAL(15,2), allowNull: false },
   fechaIngreso:  { type: DataTypes.DATEONLY, allowNull: false },
-  diasVacaciones:{ type: DataTypes.INTEGER,  allowNull: false, defaultValue: 0 }, 
+  diasVacaciones:{ type: DataTypes.FLOAT,  allowNull: false, defaultValue: 0 }, 
   estado:        { type: DataTypes.BOOLEAN,  allowNull: false, defaultValue: true },
 }, {
   tableName: 'Empleados',
   timestamps: false,
 });
+
+
 
 module.exports = Empleado;

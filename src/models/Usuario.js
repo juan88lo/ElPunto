@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../models/baseModel').sequelize;
+const Empleado = require('./Empleado');
 
 const Usuario = sequelize.define('Usuario', {
   id: {
@@ -28,12 +29,28 @@ const Usuario = sequelize.define('Usuario', {
     //   key: 'id',
     // },
   },
+   empleadoId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    // references: {
+    //   model: 'Empleados',
+    //   key: 'id',
+    // },
+  },
+  estado: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
 }, {
   sequelize,
   tableName: 'Usuarios',
   modelName: 'Usuario',
   timestamps: false,
 });
+
+Usuario.belongsTo(Empleado, { foreignKey: 'empleadoId', as: 'empleado' });
+Empleado.hasOne(Usuario, { foreignKey: 'empleadoId', as: 'usuario' });
 
  
 module.exports = Usuario;
