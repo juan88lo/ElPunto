@@ -35,19 +35,6 @@ const e = require('cors');
 
 
 
-const InventarioInputType = new GraphQLInputObjectType({
-  name: 'InventarioInput',
-  fields: () => ({
-    nombre: { type: new GraphQLNonNull(GraphQLString) },
-    codigoBarras: { type: new GraphQLNonNull(GraphQLString) },
-    precioCostoSinImpuesto: { type: new GraphQLNonNull(GraphQLFloat) },
-    impuestoPorProducto: { type: GraphQLFloat },
-    precioFinalVenta: { type: new GraphQLNonNull(GraphQLFloat) },
-    cantidadExistencias: { type: new GraphQLNonNull(GraphQLInt) },
-    familiaId: { type: new GraphQLNonNull(GraphQLID) },
-    proveedorId: { type: new GraphQLNonNull(GraphQLID) },
-  }),
-});
 
 const DetalleNotaCreditoType = new GraphQLObjectType({
   name: 'DetalleNotaCredito',
@@ -405,6 +392,21 @@ const InventarioType = new GraphQLObjectType({
     },
   }),
 });
+
+const InventarioInputType = new GraphQLInputObjectType({
+  name: 'InventarioInput',
+  fields: () => ({
+    nombre: { type: new GraphQLNonNull(GraphQLString) },
+    codigoBarras: { type: new GraphQLNonNull(GraphQLString) },
+    precioCostoSinImpuesto: { type: new GraphQLNonNull(GraphQLFloat) },
+    impuestoPorProducto: { type: GraphQLFloat },
+    precioFinalVenta: { type: new GraphQLNonNull(GraphQLFloat) },
+    cantidadExistencias: { type: new GraphQLNonNull(GraphQLInt) },
+    familiaId: { type: new GraphQLNonNull(GraphQLID) },
+    proveedorId: { type: new GraphQLNonNull(GraphQLID) },
+  }),
+});
+
 
 const LoginResponseType = new GraphQLObjectType({
   name: 'LoginResponse',
@@ -2216,31 +2218,30 @@ const RootMutation = new GraphQLObjectType({
         return true;
       },
     },
-  },
 
-  cargarInventarioMasivo: {
-    type: new GraphQLList(InventarioType),
-    args: {
-      productos: { type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(InventarioInputType))) }
-    },
-    resolve: async (_, { productos }, context) => {
-      if (!context.usuario) throw new Error('No autenticado');
-      if (!(await context.verificarPermiso('cargar_inventario_masivo'))) throw new Error('Sin permiso');
-
-      const resultados = [];
-      for (const prod of productos) {
-        const existente = await Inventario.findOne({ where: { codigoBarras: prod.codigoBarras } });
-        if (existente) {
-          await existente.update(prod);
-          resultados.push(existente);
-        } else {
-          const nuevo = await Inventario.create(prod);
-          resultados.push(nuevo);
+    cargarInventarioMasivo: {
+      type: new GraphQLList(InventarioType),
+      args: {
+        productos: { type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(InventarioInputType))) }
+      },
+      resolve: async (_, { productos }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('cargar_inventario_masivo'))) throw new Error('Sin permiso');
+        const resultados = [];
+        for (const prod of productos) {
+          const existente = await Inventario.findOne({ where: { codigoBarras: prod.codigoBarras } });
+          if (existente) {
+            await existente.update(prod);
+            resultados.push(existente);
+          } else {
+            const nuevo = await Inventario.create(prod);
+            resultados.push(nuevo);
+          }
         }
+        return resultados;
       }
-      return resultados;
-    }
-  }
+    },
+  },
 
 });
 
