@@ -33,6 +33,8 @@ const { sequelize, Sequelize } = require('../models/baseModel');
 const { Op, fn, col, literal } = require('sequelize');
 const e = require('cors');
 
+
+
 const InventarioInputType = new GraphQLInputObjectType({
   name: 'InventarioInput',
   fields: () => ({
@@ -924,35 +926,1322 @@ const RootQuery = new GraphQLObjectType({
 const RootMutation = new GraphQLObjectType({
   name: 'Mutation',
   fields: {
-    // ... (todas las mutaciones anteriores)
-
-    cargarInventarioMasivo: {
-      type: new GraphQLList(InventarioType),
+    // — User / Auth —
+    register: {
+      type: UsuarioType,
       args: {
-        productos: { type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(InventarioInputType))) }
+        nombre: { type: new GraphQLNonNull(GraphQLString) },
+        correo: { type: new GraphQLNonNull(GraphQLString) },
+        password: { type: new GraphQLNonNull(GraphQLString) },
+        tipoUsuarioId: { type: new GraphQLNonNull(GraphQLID) },
+        empleadoId: { type: GraphQLID },
+        estado: { type: GraphQLBoolean },
       },
-      resolve: async (_, { productos }, context) => {
-        if (!context.usuario) throw new Error('No autenticado');
-        if (!(await context.verificarPermiso('cargar_inventario_masivo'))) throw new Error('Sin permiso');
-
-        // Procesa cada producto: si existe, actualiza; si no, crea
-        const resultados = [];
-        for (const prod of productos) {
-          const existente = await Inventario.findOne({ where: { codigoBarras: prod.codigoBarras } });
-          if (existente) {
-            await existente.update(prod);
-            resultados.push(existente);
-          } else {
-            const nuevo = await Inventario.create(prod);
-            resultados.push(nuevo);
-          }
-        }
-        return resultados;
+      resolve: async (_, { nombre, correo, password, tipoUsuarioId, empleadoId, estado }, context) => {
+        if (!await context.verificarPermiso('crear_usuario')) throw new Error('Sin permiso');
+        if (await Usuario.findOne({ where: { correo } })) throw new Error('Correo ya en uso');
+        const hashed = await bcrypt.hash(password, 10);
+        return Usuario.create({ nombre, correo, password: hashed, tipoUsuarioId, empleadoId, estado });
       }
     },
 
-    // ... (el resto de mutaciones)
+    actualizarUsuario: {
+      type: UsuarioType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        nombre: { type: GraphQLString },
+        correo: { type: GraphQLString },
+        password: { type: GraphQLString },
+        tipoUsuarioId: { type: GraphQLID },
+        empleadoId: { type: GraphQLID },
+        estado: { type: GraphQLBoolean },
+      },
+      resolve: async (_, { id, nombre, correo, password, tipoUsuarioId, empleadoId, estado }, context) => {
+        if (!await context.verificarPermiso('editar_usuario')) throw new Error('Sin permiso');
+
+        const usuario = await Usuario.findByPk(id);
+        if (!usuario) throw new Error('Usuario no encontrado');
+
+        if (correo && correo !== usuario.correo) {
+          const existente = await Usuario.findOne({ where: { correo } });
+          if (existente) throw new Error('Correo ya en uso');
+        }
+
+        const updateFields = {};
+        if (nombre !== undefined) updateFields.nombre = nombre;
+        if (correo !== undefined) updateFields.correo = correo;
+        if (tipoUsuarioId !== undefined) updateFields.tipoUsuarioId = tipoUsuarioId;
+        if (empleadoId !== undefined) updateFields.empleadoId = empleadoId;
+        if (estado !== undefined) updateFields.estado = estado;
+        if (password) updateFields.password = await bcrypt.hash(password, 10);
+
+        await usuario.update(updateFields);
+
+        return usuario;
+      }
+    },
+
+    eliminarUsuario: {
+      type: GraphQLString,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+      },
+      resolve: async (_, { id }, context) => {
+        if (!await context.verificarPermiso('eliminar_usuario')) throw new Error('Sin permiso para eliminar usuario');
+
+        const usuario = await Usuario.findByPk(id);
+        if (!usuario) throw new Error('Usuario no encontrado');
+
+        await usuario.destroy();
+        return 'Usuario eliminado';
+      }
+    },
+
+    login: {
+      type: LoginResponseType,
+      args: {
+        correo: { type: new GraphQLNonNull(GraphQLString) },
+        password: { type: new GraphQLNonNull(GraphQLString) },
+      },
+      resolve: async (_, { correo, password }) => {
+        // const user = await Usuario.findOne({ where: { correo } });
+
+        const user = await Usuario.findOne({
+          where: { correo, estado: true },
+          include: [
+            {                      // rol  → para luego exponer permisos en UsuarioType
+              model: TipoUsuario,
+              include: [{ model: Permiso, as: 'permisos' }],
+            },
+          ],
+        });
+        if (!user) throw new Error('Usuario no encontrado');
+        if (!await bcrypt.compare(password, user.password)) throw new Error('Contraseña incorrecta');
+        const token = jwt.sign(
+          { id: user.id, tipoUsuarioId: user.tipoUsuarioId, empleadoId: user.empleadoId },
+          process.env.JWT_SECRET,
+          { expiresIn: '1h' }
+        );
+        return { token, mensaje: 'Login exitoso', usuario: user };
+      }
+    },
+
+
+    asignarPermisoARol: {
+      type: TipoUsuarioType,
+      args: {
+        tipoUsuarioId: { type: new GraphQLNonNull(GraphQLID) },
+        permisoId: { type: new GraphQLNonNull(GraphQLID) },
+      },
+      resolve: async (_, { tipoUsuarioId, permisoId }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!await context.verificarPermiso('asignar_permiso')) throw new Error('Sin permiso');
+        const [rol, permiso] = await Promise.all([
+          TipoUsuario.findByPk(tipoUsuarioId),
+          Permiso.findByPk(permisoId),
+        ]);
+        if (!rol) throw new Error('Rol no encontrado');
+        if (!permiso) throw new Error('Permiso no encontrado');
+        const existe = await TipoUsuarioPermiso.findOne({ where: { tipoUsuarioId, permisoId } });
+        if (!existe) await TipoUsuarioPermiso.create({ tipoUsuarioId, permisoId });
+        return TipoUsuario.findByPk(tipoUsuarioId, {
+          include: [{ model: Permiso, as: 'permisos' }]
+        });
+      }
+    },
+
+
+
+
+    /* ─────── configuracion ─────── */
+    crearConfiguracion: {
+      type: ConfiguracionType,
+      args: { datos: { type: new GraphQLNonNull(ConfiguracionInput) } },
+      resolve: async (_, { datos }, context) => {
+        if (!(await context.verificarPermiso('crear_configuracion'))) {
+          throw new Error('Sin permiso para crear configuraciones');
+        }
+        return Configuracion.create(datos);
+      },
+    },
+
+    /* ─────── Actualizar configuracion─────── */
+    actualizarConfiguracion: {
+      type: ConfiguracionType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        datos: { type: new GraphQLNonNull(ConfiguracionInput) },
+      },
+      resolve: async (_, { id, datos }, context) => {
+        if (!(await context.verificarPermiso('editar_configuracion'))) {
+          throw new Error('Sin permiso para editar configuraciones');
+        }
+        const cfg = await Configuracion.findByPk(id);
+        if (!cfg) throw new Error('Configuración no encontrada');
+        Object.assign(cfg, datos);   // solo sobre-escribe los campos presentes
+        return cfg.save();
+      },
+    },
+
+    /* ─────── Eliminar configuracion ─────── */
+    eliminarConfiguracion: {
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, context) => {
+        if (!(await context.verificarPermiso('eliminar_configuracion'))) {
+          throw new Error('Sin permiso para eliminar configuraciones');
+        }
+        const deleted = await Configuracion.destroy({ where: { id } });
+        return !!deleted;   // true si se borró 1 fila
+      },
+    },
+
+    // — Familia CRUD —
+    crearFamilia: {
+      type: FamiliaType,
+      args: {
+        nombre: { type: new GraphQLNonNull(GraphQLString) },
+        Observaciones: { type: GraphQLString },
+        Estado: { type: GraphQLBoolean },
+      },
+      resolve: async (_, args, context) => {
+        if (!(await context.verificarPermiso('crear_categoria'))) {
+          throw new Error('Sin permiso para crear una categoria');
+        }
+
+
+        return Familia.create({
+          nombre: args.nombre,
+          Observaciones: args.Observaciones || '',
+          Estado: args.Estado !== undefined ? args.Estado : true,
+        });
+      }
+    },
+
+    // ACTUALIZAR
+    actualizarFamilia: {
+      type: FamiliaType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        nombre: { type: GraphQLString },
+        Observaciones: { type: GraphQLString },
+        Estado: { type: GraphQLBoolean }
+      },
+      resolve: async (_, { id, ...data }, ctx) => {
+        if (!await ctx.verificarPermiso('editar_categoria')) throw new Error('Sin permiso para editar la categoría');
+        const fam = await Familia.findByPk(id);
+        if (!fam) throw new Error('Categoría No encontrada');
+        await fam.update(data);
+        return fam;
+      }
+    },
+
+    // ELIMINAR
+    eliminarFamilia: {
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, ctx) => {
+        if (!await ctx.verificarPermiso('eliminar_categoria')) throw new Error('Sin permiso para eliminar la categoría');
+        const deleted = await Familia.destroy({ where: { id } });
+        return !!deleted;
+      }
+    },
+
+    // — Proveedor CRUD —
+    crearProveedor: {
+      type: ProveedorOutputType,
+      args: {
+        input: { type: new GraphQLNonNull(ProveedorInputType) },
+      },
+      resolve: async (_, { input }, context) => {
+        if (!(await context.verificarPermiso('crear_proveedor'))) {
+          throw new Error('Sin permiso para crear proveedor');
+        }
+        try {
+          return await Proveedor.create(input);
+        } catch (err) {
+
+          throw new Error(`Error al crear proveedor: ${err.message}`);
+        }
+      },
+    },
+
+    actualizarProveedor: {
+      type: ProveedorOutputType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLInt) },
+        input: { type: new GraphQLNonNull(ProveedorInputType) },
+      },
+      resolve: async (_, { id, input }, context) => {
+        if (!(await context.verificarPermiso('editar_proveedor'))) {
+          throw new Error('Sin permiso para actualizar proveedor');
+        }
+
+        const proveedor = await Proveedor.findByPk(id);
+        if (!proveedor) {
+          throw new Error('Proveedor no encontrado');
+        }
+        try {
+          await proveedor.update(input);
+          return proveedor;
+        } catch (err) {
+          throw new Error(`Error al actualizar proveedor: ${err.message}`);
+        }
+      },
+    },
+
+    eliminarProveedor: {
+      type: GraphQLBoolean,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLInt) },
+      },
+      resolve: async (_, { id }, context) => {
+        if (!(await context.verificarPermiso('eliminar_proveedor'))) {
+          throw new Error('Sin permiso para eliminar proveedor');
+        }
+        const rows = await Proveedor.destroy({ where: { id } });
+        return rows > 0;
+      },
+    },
+
+
+    // — Inventario CRUD —
+    crearInventario: {
+      type: InventarioType,
+      args: {
+        nombre: { type: new GraphQLNonNull(GraphQLString) },
+        codigoBarras: { type: new GraphQLNonNull(GraphQLString) },
+        precioCostoSinImpuesto: { type: new GraphQLNonNull(GraphQLFloat) },
+        impuestoPorProducto: { type: new GraphQLNonNull(GraphQLFloat) },
+        precioFinalVenta: { type: new GraphQLNonNull(GraphQLFloat) },
+        cantidadExistencias: { type: new GraphQLNonNull(GraphQLInt) },
+        familiaId: { type: new GraphQLNonNull(GraphQLID) },
+        proveedorId: { type: new GraphQLNonNull(GraphQLID) },
+      },
+      resolve: async (_, args, context) => {
+        try {
+          // console.log('Usuario dentro del resolver:', context.usuario);
+          if (!(await context.verificarPermiso('crear_inventario'))) {
+            throw new Error('Sin permiso para crear productos');
+          }
+          console.log(' input:', args);
+          const existente = await Inventario.findOne({ where: { codigoBarras: args.codigoBarras } });
+          if (existente) {
+            throw new Error('Ya existe un producto con ese código de barras');
+          }
+
+          const familia = await Familia.findByPk(args.familiaId);
+          if (!familia) throw new Error('La familia no existe');
+
+          const proveedor = await Proveedor.findByPk(args.proveedorId);
+          if (!proveedor) throw new Error('El proveedor no existe');
+
+          const nuevoInventario = await Inventario.create(args);
+          return await Inventario.findByPk(nuevoInventario.id, {
+            include: [{ model: Familia, as: 'familia' }, { model: Proveedor, as: 'proveedor' }]
+          });
+        } catch (error) {
+          throw new Error(`Error al crear el inventario: ${error.message}`);
+        }
+      },
+
+    },
+    actualizarInventario: {
+      type: InventarioType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        nombre: { type: GraphQLString },
+        codigoBarras: { type: GraphQLString },
+        precioCostoSinImpuesto: { type: GraphQLFloat },
+        impuestoPorProducto: { type: GraphQLFloat },
+        precioFinalVenta: { type: GraphQLFloat },
+        cantidadExistencias: { type: GraphQLInt },
+        familiaId: { type: GraphQLID },
+        proveedorId: { type: GraphQLID },
+      },
+      resolve: async (_, args, context) => {
+        try {
+          if (!(await context.verificarPermiso('actualizar_inventario'))) {
+            throw new Error('Sin permiso para actualizar productos');
+          }
+
+          console.log('args:', args);
+          const inventario = await Inventario.findByPk(args.id);
+          if (!inventario) {
+            throw new Error('Inventario no encontrado');
+          }
+
+          // Validaciones opcionales si se proveen familiaId o proveedorId
+          if (args.familiaId) {
+            const familia = await Familia.findByPk(args.familiaId);
+            if (!familia) throw new Error('La familia no existe');
+          }
+
+          if (args.proveedorId) {
+            const proveedor = await Proveedor.findByPk(args.proveedorId);
+            if (!proveedor) throw new Error('El proveedor no existe');
+          }
+
+          await inventario.update({
+            nombre: args.nombre ?? inventario.nombre,
+            codigoBarras: args.codigoBarras ?? inventario.codigoBarras,
+            precioCostoSinImpuesto: args.precioCostoSinImpuesto ?? inventario.precioCostoSinImpuesto,
+            impuestoPorProducto: args.impuestoPorProducto ?? inventario.impuestoPorProducto,
+            precioFinalVenta: args.precioFinalVenta ?? inventario.precioFinalVenta,
+            cantidadExistencias: args.cantidadExistencias ?? inventario.cantidadExistencias,
+            familiaId: args.familiaId ?? inventario.familiaId,
+            proveedorId: args.proveedorId ?? inventario.proveedorId,
+          });
+
+          return await Inventario.findByPk(args.id, {
+            include: [{ model: Familia, as: 'familia' }, { model: Proveedor, as: 'proveedor' }]
+          });
+        } catch (error) {
+          throw new Error(`Error al actualizar el inventario: ${error.message}`);
+        }
+      },
+    },
+
+    actualizarExistencias: {
+      type: InventarioType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        cantidad: { type: new GraphQLNonNull(GraphQLInt) },
+      },
+      resolve: async (_, { id, cantidad }, context) => {
+        if (!(await context.verificarPermiso('act_existencias'))) {
+          throw new Error('Sin permiso para actualizar existencias');
+        }
+
+        const item = await Inventario.findByPk(id);
+        if (!item) throw new Error('Ítem no encontrado');
+        return item.agregarExistencias(cantidad);
+      }
+    },
+
+    // roles
+
+    crearTipoUsuario: {
+      type: TipoUsuarioType,
+      args: { input: { type: new GraphQLNonNull(TipoUsuarioInputType) } },
+
+      resolve: async (_, args, context) => {
+        try {
+          if (!(await context.verificarPermiso('crear_rol'))) {
+            throw new Error('Sin permiso para crear rol');
+          }
+
+          const existente = await TipoUsuario.findOne({ where: { nombre: args.nombre } });
+          if (existente) {
+            throw new Error('Ya existe un rol con este nombre');
+          }
+
+          return TipoUsuario.create(input);
+        } catch (error) {
+          throw new Error(`Error al crear el rol: ${error.message}`);
+        }
+      }
+    },
+
+    actualizarTipoUsuario: {
+      type: TipoUsuarioType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        input: { type: new GraphQLNonNull(TipoUsuarioInputType) }
+      },
+      resolve: async (_, { id, input }, ctx) => {
+        if (!await ctx.verificarPermiso('editar_rol')) throw new Error('Sin permiso');
+        const rol = await TipoUsuario.findByPk(id);
+        if (!rol) throw new Error('Rol no encontrado');
+        return rol.update(input);
+      }
+    },
+
+    eliminarTipoUsuario: {
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, ctx) => {
+        if (!await ctx.verificarPermiso('eliminar_rol')) throw new Error('Sin permiso');
+        return !!(await TipoUsuario.destroy({ where: { id } }));
+      }
+    },
+
+    ///permisos
+    quitarPermisoARol: {
+      type: TipoUsuarioType,          // o un objeto { success, message }
+      args: {
+        tipoUsuarioId: { type: new GraphQLNonNull(GraphQLID) },
+        permisoId: { type: new GraphQLNonNull(GraphQLID) },
+      },
+      resolve: async (_, { tipoUsuarioId, permisoId }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!await context.verificarPermiso('revocar_permiso')) throw new Error('Sin permiso');
+
+        await TipoUsuarioPermiso.destroy({ where: { tipoUsuarioId, permisoId } });
+        return TipoUsuario.findByPk(tipoUsuarioId, {
+          include: [{ model: Permiso, as: 'permisos' }],
+        });
+      },
+    },
+
+    //cajas
+    abrirCaja: {
+      type: CajaType,
+      args: { montoInicial: { type: new GraphQLNonNull(GraphQLFloat) } },
+
+      resolve: async (_, { montoInicial }, context) => {
+        if (!context?.usuario) throw new Error('No autenticado');
+
+        //  verifica caja abierta del usuario
+        const abierta = await Caja.findOne({
+          where: { usuarioAperturaId: context.usuario.id, estado: 'abierta' },
+        });
+        if (abierta) throw new Error('Ya tienes una caja abierta');
+
+        //   calcula el consecutivo del día (numeroDia)
+        const hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+        const hoyF = new Date(); hoyF.setHours(23, 59, 59, 999);
+
+        const maxNum = await Caja.max('numeroDia', {
+          where: { fechaApertura: { [Op.between]: [hoy0, hoyF] } },
+        });
+
+        const numeroDia = (maxNum || 0) + 1;
+
+
+        return await Caja.create({
+          usuarioId: context.usuario.id,
+          usuarioAperturaId: context.usuario.id,
+          fechaApertura: new Date(),
+          montoInicial,
+          montoSistema: montoInicial,
+          estado: 'abierta',
+          numeroDia,                             // ← consecutivo diario
+        });
+      },
+    },
+
+    reabrirCaja: {
+      type: CajaType,
+      args: {
+        cajaId: { type: new GraphQLNonNull(GraphQLID) },
+        motivo: { type: GraphQLString },
+      },
+      async resolve(_, { cajaId, motivo }, ctx) {
+        if (!ctx.usuario) throw new Error('No autenticado');
+        if (!(await ctx.verificarPermiso('reabrir_caja')))
+          throw new Error('Sin permiso');
+
+        const caja = await Caja.findByPk(cajaId);
+        if (!caja) throw new Error('Caja no encontrada');
+        if (caja.estado !== 'cerrada') throw new Error('Solo se reabren cajas cerradas');
+
+        await caja.update({
+          estado: 'reabierta',
+          fechaReapertura: new Date(),
+          motivoReapertura: motivo ?? 'Sin detalle',
+        });
+
+        await Bitacora.create({
+          entidad: 'caja',
+          entidadId: caja.id,
+          accion: 'reabrir',
+          usuarioId: ctx.usuario.id,
+          detalle: motivo ?? '',
+        });
+
+        return caja;
+      },
+    },
+
+    cerrarCaja: {
+      type: CajaType,
+      args: {
+        cajaId: { type: new GraphQLNonNull(GraphQLID) },
+        montoReal: { type: new GraphQLNonNull(GraphQLFloat) },
+      },
+      resolve: async (_, { cajaId, montoReal }, context) => {
+        if (!context?.usuario) throw new Error('No autenticado');
+
+        const caja = await Caja.findByPk(cajaId);
+        if (!caja) throw new Error('Caja no encontrada');
+        if (!['abierta', 'reabierta'].includes(caja.estado))
+          throw new Error('La caja ya está cerrada o no puede cerrarse');
+
+        // 1️⃣ total ventas
+        const ventas = await Factura.sum('total', { where: { cajaId } });
+
+        // 2️⃣ fuerza ambos operandos a número
+        const montoInicial = Number(caja.montoInicial) || 0;   // o parseFloat
+        const totalVentas = Number(ventas) || 0;
+        const montoSistema = montoInicial + totalVentas;
+
+        const diferencia = Number(montoReal) - montoSistema;
+
+        await caja.update({
+          fechaCierre: new Date(),
+          usuarioCierreId: context.usuario.id,
+          montoSistema,
+          montoReal,
+          diferencia,
+          estado: 'cerrada',
+        });
+
+        await Bitacora.create({
+          entidad: 'caja',
+          entidadId: caja.id,
+          accion: 'cerrar',
+          usuarioId: context.usuario.id,
+          detalle: `montoSistema=${montoSistema}, montoReal=${montoReal}, diff=${diferencia}`,
+        });
+
+        return caja;
+      },
+    },
+
+    ajustarCaja: {
+      type: CajaType,
+      args: {
+        cajaId: { type: new GraphQLNonNull(GraphQLID) },
+        montoReal: { type: new GraphQLNonNull(GraphQLFloat) },
+        comentario: { type: GraphQLString },
+      },
+      resolve: async (_, { cajaId, montoReal, comentario }, context) => {
+        if (!context?.usuario) throw new Error('No autenticado');
+
+        const caja = await Caja.findByPk(cajaId);
+        if (!caja) throw new Error('Caja no encontrada');
+        if (caja.estado !== 'cerrada')
+          throw new Error('Solo se pueden ajustar cajas ya cerradas');
+
+        const nuevaDiferencia = montoReal - caja.montoSistema;
+
+        await caja.update({ montoReal, diferencia: nuevaDiferencia });
+
+        await Bitacora.create({
+          entidad: 'caja',
+          entidadId: caja.id,
+          accion: 'ajustar',
+          usuarioId: context?.usuario?.id,
+          detalle: comentario || `Ajuste. nuevoMontoReal=${montoReal}, diff=${nuevaDiferencia}`,
+        });
+
+        return caja;
+      },
+    },
+
+
+    //crear permisos
+
+    crearPermiso: {
+      type: PermisoType,
+      args: { input: { type: new GraphQLNonNull(PermisoInputType) } },
+      async resolve(_, { input }, ctx) {
+        // ▸ 1) RBAC
+        if (!ctx.usuario) throw new Error('No autenticado');
+        if (!await ctx.verificarPermiso('crear_permiso')) throw new Error('Sin permiso');
+
+        // ▸ 2) Unicidad por nombre
+        const existe = await Permiso.findOne({ where: { nombrePermiso: input.nombrePermiso } });
+        if (existe) throw new Error('Ya existe un permiso con ese nombre');
+
+        return Permiso.create(input);
+      },
+    },
+
+    actualizarPermiso: {
+      type: PermisoType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        input: { type: new GraphQLNonNull(PermisoInputType) },
+      },
+      async resolve(_, { id, input }, ctx) {
+        if (!ctx.usuario) throw new Error('No autenticado');
+        if (!await ctx.verificarPermiso('editar_permiso')) throw new Error('Sin permiso');
+
+        const permiso = await Permiso.findByPk(id);
+        if (!permiso) throw new Error('Permiso no encontrado');
+
+        // Si cambia el nombre, validar unicidad
+        if (input.nombrePermiso && input.nombrePermiso !== permiso.nombrePermiso) {
+          const dup = await Permiso.findOne({ where: { nombrePermiso: input.nombrePermiso } });
+          if (dup) throw new Error('Ya existe otro permiso con ese nombre');
+        }
+
+        await permiso.update(input);
+        return permiso;
+      },
+    },
+
+    eliminarPermiso: {
+      type: GraphQLBoolean,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) }
+      },
+      async resolve(_, { id }, ctx) {
+        if (!ctx.usuario) throw new Error('No autenticado');
+        if (!await ctx.verificarPermiso('eliminar_permiso')) throw new Error('Sin permiso');
+
+        const deleted = await Permiso.destroy({ where: { id } });
+        return !!deleted;
+      },
+    },
+
+    eliminarInventario: {
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, context) => {
+        if (!(await context.verificarPermiso('eliminar_inventario'))) {
+          throw new Error('Sin permiso para eliminar productos');
+        }
+        const deleted = await Inventario.destroy({ where: { id } });
+        return !!deleted;
+      }
+    },
+
+
+    ///factura
+    crearFactura: {
+      type: FacturaType,
+      args: { input: { type: new GraphQLNonNull(FacturaInputType) } },
+      async resolve(_, { input }, ctx) {
+        if (!ctx.usuario) throw new Error('No autenticado');
+        if (!(await ctx.verificarPermiso('crear_factura')))
+          throw new Error('Sin permiso');
+
+        const { cajaId, usuarioId, formaPago, productos } = input;
+
+        const t = await sequelize.transaction();
+        try {
+          /* ─── 1. calcular totales e insertar factura ─── */
+          let subtotal = 0;
+          const detalles = [];
+
+          for (const p of productos) {
+            const item = await Inventario.findOne({
+              where: { codigoBarras: p.codigoBarras },
+              transaction: t,
+            });
+
+            if (!item) {
+              throw new Error(`Producto con código ${p.codigoBarras} no existe`);
+            }
+            if (item.cantidadExistencias < p.cantidad) {
+              throw new Error(
+                `Producto ${item.nombre} — stock ${item.cantidadExistencias}, solicitado ${p.cantidad}`
+              );
+            }
+
+            const precio = parseFloat(item.precioFinalVenta);
+            const totalLinea = +(precio * p.cantidad).toFixed(2);
+            subtotal += totalLinea;
+
+            detalles.push({
+              inventarioId: item.id,
+              cantidad: p.cantidad,
+              precio: precio,
+              total: totalLinea,
+            });
+          }
+
+          const descuento = 0;
+          const impuesto = 0;
+          const totalFact = subtotal - descuento + impuesto;
+          const formaPagoOk = formaPago.toLowerCase();
+
+          // ─── 2. Generar consecutivo ───
+          const consecutivoRow = await ConsecutivoFactura.findOne({
+            transaction: t,
+            lock: t.LOCK.UPDATE,
+          });
+
+          if (!consecutivoRow) {
+            throw new Error('No se encontró el consecutivo de facturas');
+          }
+
+          consecutivoRow.ultimo += 1;
+          await consecutivoRow.save({ transaction: t });
+
+          const numero = consecutivoRow.ultimo;
+          const consecutivo = `EP-${numero.toString().padStart(6, '0')}`;
+
+          // ─── 3. Crear factura ───
+          const factura = await Factura.create(
+            {
+              cajaId,
+              usuarioId,
+              consecutivo,
+              fecha: new Date(),
+              subtotal,
+              descuento,
+              impuesto,
+              total: totalFact,
+              formaPago: formaPagoOk,
+              estado: 'emitida',
+            },
+            { transaction: t }
+          );
+
+          for (const d of detalles) {
+
+            await FacturaDetalle.create(
+              {
+                facturaId: factura.id,
+                inventarioId: d.inventarioId,
+                cantidad: d.cantidad,
+                precio: d.precio,
+                total: d.total,
+              },
+              { transaction: t }
+            );
+
+            await Inventario.decrement(
+              { cantidadExistencias: d.cantidad },
+              { where: { id: d.inventarioId }, transaction: t }
+            );
+          }
+
+          // ─── 5. Sumar venta a la Caja ───
+          await Caja.increment(
+            { totalVentas: totalFact, montoSistema: totalFact },
+            { where: { id: cajaId }, transaction: t }
+          );
+
+          // ─── 6. Bitácora opcional ───
+          await Bitacora.create(
+            {
+              entidad: 'factura',
+              entidadId: factura.id,
+              accion: 'crear',
+              usuarioId: ctx.usuario.id,
+              detalle: `total=${totalFact}`,
+            },
+            { transaction: t }
+          );
+
+          await t.commit();
+          return factura;
+        } catch (err) {
+          await t.rollback();
+
+          const detalles =
+            err.errors?.map((e) => `${e.path}: ${e.message}`).join(' | ') ||
+            err.message;
+
+          throw new Error(`Validación falló → ${detalles}`);
+        }
+      },
+    },
+
+    crearEmpleado: {
+      type: EmpleadoType,
+      args: {
+        nombre: { type: new GraphQLNonNull(GraphQLString) },
+        apellido: { type: new GraphQLNonNull(GraphQLString) },
+        cedula: { type: new GraphQLNonNull(GraphQLString) },
+        puesto: { type: new GraphQLNonNull(GraphQLString) },
+        salarioBase: { type: new GraphQLNonNull(GraphQLFloat) },
+        fechaIngreso: { type: new GraphQLNonNull(GraphQLString) },
+        diasVacaciones: { type: GraphQLFloat },
+        estado: { type: GraphQLBoolean },
+      },
+      resolve: async (_, args, context) => {
+        if (!(await context.verificarPermiso('crear_empleado'))) {
+          throw new Error('Sin permiso para crear empleados');
+        }
+        // Validación de cédula única
+        const existe = await Empleado.findOne({ where: { cedula: args.cedula } });
+        if (existe) {
+          throw new Error('Ya existe un empleado con esa cédula');
+        }
+        return await Empleado.create(args);
+      },
+    },
+
+    actualizarEmpleado: {
+      type: EmpleadoType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        nombre: { type: GraphQLString },
+        apellido: { type: GraphQLString },
+        puesto: { type: GraphQLString },
+        salarioBase: { type: GraphQLFloat },
+        diasVacaciones: { type: GraphQLFloat },
+        estado: { type: GraphQLBoolean },
+      },
+      resolve: async (_, { id, ...campos }, context) => {
+        if (!(await context.verificarPermiso('editar_empleado'))) {
+          throw new Error('Sin permiso para editar empleados');
+        }
+        await Empleado.update(campos, { where: { id } });
+        return await Empleado.findByPk(id);
+      },
+    },
+
+    eliminarEmpleado: {
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, context) => {
+        if (!(await context.verificarPermiso('eliminar_empleado'))) {
+          throw new Error('Sin permiso para eliminar empleados');
+        }
+        const deleted = await Empleado.destroy({ where: { id } });
+        return !!deleted;
+      },
+    },
+
+    pagarPlanilla: {
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, context) => {
+        if (!(await context.verificarPermiso('pagar_planilla'))) {
+          throw new Error('Sin permiso para pagar planillas');
+        }
+        const actualizado = await Planilla.update(
+          { pagado: true },
+          { where: { id, pagado: false } }
+        );
+        return !!actualizado[0];
+      },
+    },
+
+    crearPlanilla: {
+      type: PlanillaType,
+      args: {
+        empleadoId: { type: new GraphQLNonNull(GraphQLID) },
+        fechaInicio: { type: new GraphQLNonNull(GraphQLString) },
+        fechaFin: { type: new GraphQLNonNull(GraphQLString) },
+        salarioBruto: { type: new GraphQLNonNull(GraphQLFloat) },
+        deducciones: { type: GraphQLFloat },
+        salarioNeto: { type: new GraphQLNonNull(GraphQLFloat) }
+      },
+      resolve: async (_, args, context) => {
+        if (!(await context.verificarPermiso('crear_planilla'))) {
+          throw new Error('Sin permiso para crear planillas');
+        }
+        return await Planilla.create(args);
+      }
+    },
+
+    actualizarPlanilla: {
+      type: PlanillaType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        empleadoId: { type: GraphQLID },
+        fechaInicio: { type: GraphQLString },
+        fechaFin: { type: GraphQLString },
+        salarioBruto: { type: GraphQLFloat },
+        deducciones: { type: GraphQLFloat },
+        salarioNeto: { type: GraphQLFloat },
+        pagado: { type: GraphQLBoolean }
+      },
+      resolve: async (_, args, context) => {
+        if (!(await context.verificarPermiso('editar_planilla'))) {
+          throw new Error('Sin permiso para editar planillas');
+        }
+        const planilla = await Planilla.findByPk(args.id);
+        if (!planilla) throw new Error('Planilla no encontrada');
+        await planilla.update({
+          empleadoId: args.empleadoId ?? planilla.empleadoId,
+          fechaInicio: args.fechaInicio ?? planilla.fechaInicio,
+          fechaFin: args.fechaFin ?? planilla.fechaFin,
+          salarioBruto: args.salarioBruto ?? planilla.salarioBruto,
+          deducciones: args.deducciones ?? planilla.deducciones,
+          salarioNeto: args.salarioNeto ?? planilla.salarioNeto,
+          pagado: args.pagado ?? planilla.pagado
+        });
+        return planilla;
+      }
+    },
+
+    eliminarPlanilla: {
+      // evita borrar las ya pagadas
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, context) => {
+        if (!(await context.verificarPermiso('eliminar_planilla'))) {
+          throw new Error('Sin permiso para eliminar planillas');
+        }
+        const planilla = await Planilla.findByPk(id);
+        if (!planilla || planilla.pagado) throw new Error('Planilla no existe o ya está pagada');
+        const deleted = await Planilla.destroy({ where: { id } });
+        return !!deleted;
+      },
+    },
+
+    crearPagoProveedor: {
+      type: PagoProveedorType,
+      args: {
+        proveedorId: { type: new GraphQLNonNull(GraphQLID) },
+        fechaPago: { type: new GraphQLNonNull(GraphQLString) },
+        monto: { type: new GraphQLNonNull(GraphQLFloat) },
+        metodo: { type: new GraphQLNonNull(GraphQLString) },
+        referencia: { type: GraphQLString },
+        observacion: { type: GraphQLString }
+      },
+      resolve: async (_, args, context) => {
+        if (!(await context.verificarPermiso('crear_pagoproveedor'))) {
+          throw new Error('Sin permiso para crear pagos a proveedores');
+        }
+        return await PagoProveedor.create(args);
+      },
+    },
+
+    pagarProveedor: {
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, context) => {
+        if (!(await context.verificarPermiso('pagar_proveedor'))) {
+          throw new Error('Sin permiso para marcar pago');
+        }
+        const [filas] = await PagoProveedor.update(
+          { pagado: true },
+          { where: { id, pagado: false } }
+        );
+        return !!filas;
+      },
+    },
+
+
+    actualizarPagoProveedor: {
+      type: PagoProveedorType, // Devuelve el pago actualizado
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        proveedorId: { type: GraphQLID },
+        fechaPago: { type: GraphQLString },
+        monto: { type: GraphQLFloat },
+        metodo: { type: GraphQLString },
+        referencia: { type: GraphQLString },
+        observacion: { type: GraphQLString }
+      },
+      resolve: async (_, args, context) => {
+        if (!(await context.verificarPermiso('editar_pago_proveedor'))) {
+          throw new Error('Sin permiso para editar pago');
+        }
+        const pago = await PagoProveedor.findByPk(args.id);
+        if (!pago) throw new Error('Pago no encontrado');
+
+        // Solo actualiza los campos enviados
+        await pago.update({
+          proveedorId: args.proveedorId ?? pago.proveedorId,
+          fechaPago: args.fechaPago ?? pago.fechaPago,
+          monto: args.monto ?? pago.monto,
+          metodo: args.metodo ?? pago.metodo,
+          referencia: args.referencia ?? pago.referencia,
+          observacion: args.observacion ?? pago.observacion
+        });
+
+        return pago;
+      }
+    },
+
+    eliminarPagoProveedor: {
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, context) => {
+        if (!(await context.verificarPermiso('eliminar_pagoproveedor'))) {
+          throw new Error('Sin permiso para eliminar el registro');
+        }
+        const deleted = await PagoProveedor.destroy({ where: { id } });
+        return !!deleted;
+      },
+    },
+
+    crearNotaCredito: {
+      type: NotaCreditoType,
+      args: {
+        facturaId: { type: new GraphQLNonNull(GraphQLID) },
+        motivo: { type: GraphQLString },
+        detalles: {
+          type: new GraphQLNonNull(
+            new GraphQLList(new GraphQLNonNull(DetalleNotaCreditoInput))
+          )
+        },
+      },
+      resolve: async (_, { facturaId, motivo, detalles }, { usuario, verificarPermiso }) => {
+        if (!(await verificarPermiso('crear_nota_credito')))
+          throw new Error('Sin permiso');
+
+        // transacción para consistencia
+        return sequelize.transaction(async (t) => {
+          // calcular totales
+          let total = 0;
+          detalles.forEach(d => {
+            d.subtotal = d.precioUnitario * d.cantidad;
+            total += d.subtotal + (d.impuesto || 0);
+          });
+
+          // crear cabecera
+          const nota = await NotaCredito.create({
+            facturaId,
+            usuarioId: usuario.id,
+            fecha: new Date(),
+            motivo,
+            total,
+            estado: 'emitida',
+          }, { transaction: t });
+
+          // crear renglones y devolver inventario
+          for (const d of detalles) {
+            const detalle = await DetalleNotaCredito.create(
+              { ...d, notaCreditoId: nota.id },
+              { transaction: t },
+            );
+            // sumar existencias
+            const prod = await Inventario.findByPk(d.productoId, { transaction: t });
+            if (!prod) throw new Error(`Producto ${d.productoId} no existe`);
+            await prod.agregarExistencias(d.cantidad, { transaction: t });
+          }
+          return nota;
+        });
+      },
+    },
+
+    anularNotaCredito: {
+      type: NotaCreditoType,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, { verificarPermiso }) => {
+        if (!ctx.usuario) throw new Error('No autenticado');
+        if (!(await ctx.verificarPermiso('anular_nota_credito')))
+          throw new Error('Sin permiso');
+
+
+        return sequelize.transaction(async (t) => {
+          const nota = await NotaCredito.findByPk(id, {
+            include: [DetalleNotaCredito],
+            transaction: t,
+            lock: t.LOCK.UPDATE,
+          });
+          if (!nota) throw new Error('Nota no encontrada');
+          if (nota.estado === 'anulada')
+            throw new Error('Ya está anulada');
+
+          // deshacer movimiento de inventario
+          for (const d of nota.DetalleNotaCreditos) {
+            const prod = await Inventario.findByPk(d.productoId, { transaction: t });
+            await prod.reducirExistencias(d.cantidad, { transaction: t }); // o tu método inverso
+          }
+
+          await nota.update({ estado: 'anulada' }, { transaction: t });
+          return nota;
+        });
+      },
+    },
+
+    //cancelar factura para nota de credito 
+    cancelarFactura: {
+      type: NotaCreditoType,
+      args: {
+        facturaId: { type: new GraphQLNonNull(GraphQLID) },
+        motivo: { type: GraphQLString },
+      },
+      resolve: async (_, { facturaId, motivo }, ctx) => {
+        if (!ctx.usuario) throw new Error('No autenticado');
+        if (!(await ctx.verificarPermiso('crear_nota_credito')))
+          throw new Error('Sin permiso');
+
+        return sequelize.transaction(async (t) => {
+          const factura = await Factura.findByPk(facturaId, {
+            include: [{ model: FacturaDetalle, as: 'DetalleFacturas' }],
+            lock: t.LOCK.UPDATE,
+            transaction: t,
+          });
+          if (!factura) throw new Error('Factura no existe');
+          if (factura.estado !== 'emitida') throw new Error('Solo facturas emitidas');
+
+          const nota = await NotaCredito.create({
+            facturaId,
+            usuarioId: ctx.usuario.id,
+            fecha: new Date(),
+            motivo: motivo ?? 'Anulación de factura',
+            total: factura.total,
+            estado: 'emitida',
+          }, { transaction: t });
+
+          for (const l of factura.DetalleFacturas) {
+            await DetalleNotaCredito.create({
+              notaCreditoId: nota.id,
+              productoId: l.inventarioId,
+              cantidad: l.cantidad,
+              precioUnitario: l.precio,
+              subtotal: l.total,
+              impuesto: 0,
+            }, { transaction: t });
+
+            const prod = await Inventario.findByPk(l.inventarioId, { transaction: t });
+            await prod.agregarExistencias(l.cantidad, { transaction: t });
+          }
+
+          await factura.update({ estado: 'anulada' }, { transaction: t });
+
+          await Caja.decrement(
+            { totalVentas: factura.total, montoSistema: factura.total },
+            { where: { id: factura.cajaId }, transaction: t }
+          );
+
+          await Bitacora.bulkCreate([
+            {
+              entidad: 'nota_credito',
+              entidadId: nota.id,
+              accion: 'crear',
+              usuarioId: ctx.usuario.id,
+              detalle: `anula factura ${factura.consecutivo}`,
+            },
+            {
+              entidad: 'factura',
+              entidadId: factura.id,
+              accion: 'anular',
+              usuarioId: ctx.usuario.id,
+              detalle: `crea NC ${nota.id}`,
+            }
+          ], { transaction: t });
+
+          return nota;
+        });
+      }
+    },
+
+
+    ///reporte inventario 
+    // ✅ Esto es correcto:
+    generarInventarioPDF: {
+      type: GraphQLString, // o el tipo de dato que retorna (ej: URL como string)
+      args: {
+        // aquí puedes definir los argumentos si los necesitas
+      },
+      resolve: async (_, args, ctx) => {
+        const items = await invQuery.reporteInventario(_, args, ctx);
+
+        const html = await renderTemplate('inventario', {
+          fecha: new Date().toLocaleString('es-CR'),
+          items,
+        });
+
+        const fileName = `inventario_${uuid()}.pdf`;
+        const outPath = path.join(__dirname, '../../generated', fileName);
+        await generatePdf(html, outPath);
+
+        return `/archivos/${fileName}`;
+
+      }
+    },
+
+    aprobarVacacion: {
+      type: VacacionTomadaType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        estado: { type: new GraphQLNonNull(GraphQLString) }, // 'aprobada' o 'rechazada'
+      },
+      resolve: async (_, { id, estado }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+
+        // Validar permisos (si es necesario)
+        // if (!(await context.verificarPermiso('aprobar_vacacion_tomada'))) {
+        //   throw new Error('Sin permiso para aprobar/rechazar');
+        // }
+
+        // Validar que el estado sea 'aprobada' o 'rechazada'
+        if (estado !== 'aprobada' && estado !== 'rechazada') {
+          throw new Error('Estado inválido. Solo puede ser "aprobada" o "rechazada".');
+        }
+
+        // Buscar la vacación con el ID proporcionado
+        const vacacion = await VacacionTomada.findByPk(id);
+        if (!vacacion) throw new Error('Vacación no encontrada');
+
+        // Actualizar el estado de la vacación
+        await vacacion.update({ estado });
+
+        // Retornar la vacación actualizada
+        return vacacion;
+      },
+    },
+
+    crearVacacionTomada: {
+      type: VacacionTomadaType,
+      args: {
+        empleadoId: { type: new GraphQLNonNull(GraphQLID) },
+        dias: { type: new GraphQLNonNull(GraphQLFloat) },
+        fecha: { type: new GraphQLNonNull(GraphQLString) },
+        estado: { type: GraphQLString },
+      },
+      resolve: async (_, args, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('crear_vacacion_tomada'))) {
+          throw new Error('Sin permiso');
+        }
+        return await VacacionTomada.create({
+          ...args,
+          estado: args.estado || 'pendiente',
+        });
+      },
+    },
+
+    actualizarVacacionTomada: {
+      type: VacacionTomadaType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        dias: { type: GraphQLFloat },
+        fecha: { type: GraphQLString },
+        estado: { type: GraphQLString },
+      },
+      resolve: async (_, { id, dias, fecha, estado }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('actualizar_vacacion_tomada'))) {
+          throw new Error('Sin permiso');
+        }
+        const vacacion = await VacacionTomada.findByPk(id);
+        if (!vacacion) throw new Error('Vacación no encontrada');
+        if (dias !== undefined) vacacion.dias = dias;
+        if (fecha !== undefined) vacacion.fecha = fecha;
+        if (estado !== undefined) vacacion.estado = estado;
+        await vacacion.save();
+        return vacacion;
+      },
+    },
+
+    eliminarVacacionTomada: {
+      type: GraphQLBoolean,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+      },
+      resolve: async (_, { id }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('eliminar_vacacion_tomada'))) {
+          throw new Error('Sin permiso');
+        }
+        const vacacion = await VacacionTomada.findByPk(id);
+        if (!vacacion) throw new Error('Vacación no encontrada');
+        await vacacion.destroy();
+        return true;
+      },
+    },
+  },
+
+  cargarInventarioMasivo: {
+    type: new GraphQLList(InventarioType),
+    args: {
+      productos: { type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(InventarioInputType))) }
+    },
+    resolve: async (_, { productos }, context) => {
+      if (!context.usuario) throw new Error('No autenticado');
+      if (!(await context.verificarPermiso('cargar_inventario_masivo'))) throw new Error('Sin permiso');
+
+      const resultados = [];
+      for (const prod of productos) {
+        const existente = await Inventario.findOne({ where: { codigoBarras: prod.codigoBarras } });
+        if (existente) {
+          await existente.update(prod);
+          resultados.push(existente);
+        } else {
+          const nuevo = await Inventario.create(prod);
+          resultados.push(nuevo);
+        }
+      }
+      return resultados;
+    }
   }
+
 });
 
 module.exports = new GraphQLSchema({
