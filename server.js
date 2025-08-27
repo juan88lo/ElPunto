@@ -51,7 +51,7 @@ const server = new ApolloServer({
   try {
     // Sincronizar la base de datos
     await sequelize.sync({ alter: true });
-    console.log('✅ Base de datos sincronizada');
+    console.log('Base de datos sincronizada');
 
     // Iniciar tareas programadas
     require('./tareas/scheduler')({ Caja, Factura, Bitacora });
@@ -64,9 +64,10 @@ const server = new ApolloServer({
     const httpServer = createServer(app);
     const PORT = process.env.PORT || 4000;
     httpServer.listen({ port: PORT }, () => {
-      console.log(`🚀 Servidor GraphQL listo en http://localhost:${PORT}${server.graphqlPath}`);
+      console.log(` Servidor GraphQL listo en http://localhost:${PORT}${server.graphqlPath}`);
     });
   } catch (error) {
-    console.error('❌ Error al iniciar el servidor:', error);
+    console.error(' Error al iniciar el servidor:', error);
   }
 })();
+
