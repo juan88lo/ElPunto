@@ -23,7 +23,7 @@ const app = express();
 
 // Configuración CORS
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'], // Agrega aquí todos los orígenes permitidos
+  origin: ['https://elpuntoui-production.up.railway.app', 'http://localhost:3000'], // Agrega aquí todos los orígenes permitidos
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -61,7 +61,7 @@ const server = new ApolloServer({
   try {
     // Sincronizar la base de datos
     await sequelize.sync({ alter: true });
-    console.log('✅ Base de datos sincronizada');
+    console.log(' Base de datos sincronizada');
 
     // Iniciar tareas programadas
     require('./tareas/scheduler')({ Caja, Factura, Bitacora });
@@ -77,9 +77,9 @@ const server = new ApolloServer({
     const httpServer = createServer(app);
     const PORT = process.env.PORT || 4000;
     httpServer.listen({ port: PORT }, () => {
-      console.log(`🚀 Servidor GraphQL listo en http://localhost:${PORT}${server.graphqlPath}`);
+      console.log(` Servidor GraphQL listo en http://localhost:${PORT}${server.graphqlPath}`);
     });
   } catch (error) {
-    console.error('❌ Error al iniciar el servidor:', error);
+    console.error(' Error al iniciar el servidor:', error);
   }
 })();
