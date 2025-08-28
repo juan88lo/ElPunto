@@ -22,20 +22,8 @@ const verificarPermiso = require('./utils/permisos');
 
 // Configuración CORS
 const corsOptions = {
-  origin: function(origin, callback) {
-    const allowedOrigins = [
-      'https://elpuntoui-production.up.railway.app',
-      'http://localhost:3000',
-      'http://localhost:5173'
-    ];
-    
-    // Permitir solicitudes sin origin (como las herramientas de desarrollo)
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('No permitido por CORS'));
-    }
-  },
+  origin: true, // Permite todos los orígenes
+  optionsSuccessStatus: 200, // Para navegadores antiguos
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
