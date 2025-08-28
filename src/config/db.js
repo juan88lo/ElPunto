@@ -1,17 +1,33 @@
   const { Sequelize } = require('sequelize');
 require('dotenv').config();
 
-const sequelize = new Sequelize(
-  process.env.DB_NAME,
-  process.env.DB_USER,
-  process.env.DB_PASSWORD,
-  {
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    dialect: 'mysql',
-    logging: false,
-  }
-);
+// Use in-memory SQLite for tests
+const isTest = process.env.NODE_ENV === 'test';
+const sequelize = isTest
+  ? new Sequelize({ dialect: 'sqlite', storage: ':memory:', logging: false })
+  : new Sequelize(
+      process.env.DB_NAME,
+      process.env.DB_USER,
+      process.env.DB_PASSWORD,
+      {
+        host: process.env.DB_HOST,
+        port: process.env.DB_PORT,
+        dialect: 'mysql',
+        logging: false,
+        dialectOptions: {
+          connectTimeout: 60000,
+        },
+        pool: {
+          max: 5,
+          min: 0,
+          acquire: 60000,
+          idle: 10000
+        },
+        retry: {
+          max: 3
+        }
+      }
+    );
 
 // Verificar la conexión a la base de datos
 sequelize.authenticate()
