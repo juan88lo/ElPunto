@@ -4,6 +4,7 @@ const { createServer } = require('http');
 const { ApolloServer } = require('apollo-server-express');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const path = require('path');
 
 const {
   sequelize,
@@ -17,19 +18,39 @@ const {
 } = require('./models');
 
 const schema = require('./graphql/schema');
-const verificarPermiso = require('../src/utils/permisos');
-const path = require('path');
-const app = express();
+const verificarPermiso = require('./utils/permisos');
 
 // Configuración CORS
-app.use(cors({
-  origin: ['https://elpuntoui-production.up.railway.app', 'http://localhost:3000'], // Agrega aquí todos los orígenes permitidos
+const corsOptions = {
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+      'https://elpuntoui-production.up.railway.app',
+      'http://localhost:3000',
+      'http://localhost:5173'
+    ];
+    
+    // Permitir solicitudes sin origin (como las herramientas de desarrollo)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('No permitido por CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+};
 
+// Inicializar Express
+const app = express();
+
+// Aplicar middleware CORS
+app.use(cors(corsOptions));
+
+// Servir archivos estáticos
 app.use('/archivos', express.static(path.join(__dirname, 'generated')));
+
+// Configurar Apollo Server
 const server = new ApolloServer({
   schema,
   context: async ({ req }) => {
@@ -47,21 +68,17 @@ const server = new ApolloServer({
 
     return {
       usuario,
-      verificarPermiso: (permiso) =>
-        verificarPermiso(permiso, usuario?.id),
+      verificarPermiso: (permiso) => verificarPermiso(permiso, usuario?.id),
     };
-  },
-  cors: {
-    origin: '*',
-    methods: 'GET,POST',
-  },
+  }
 });
 
-(async () => {
+// Función principal de inicio
+async function startServer() {
   try {
     // Sincronizar la base de datos
     await sequelize.sync({ alter: true });
-    console.log(' Base de datos sincronizada');
+    console.log('✅ Base de datos sincronizada');
 
     // Iniciar tareas programadas
     require('./tareas/scheduler')({ Caja, Factura, Bitacora });
@@ -73,13 +90,21 @@ const server = new ApolloServer({
       cors: false // Desactivamos CORS de Apollo para usar el middleware de Express
     });
 
-    // Crear servidor HTTP
+    // Crear y configurar servidor HTTP
     const httpServer = createServer(app);
     const PORT = process.env.PORT || 4000;
-    httpServer.listen({ port: PORT }, () => {
-      console.log(` Servidor GraphQL listo en http://localhost:${PORT}${server.graphqlPath}`);
-    });
+    const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
+    
+    // Iniciar servidor
+    await new Promise(resolve => httpServer.listen({ port: PORT, host: HOST }, resolve));
+    console.log(`🚀 Servidor GraphQL listo en http://${HOST}:${PORT}${server.graphqlPath}`);
+    console.log(`🌐 CORS habilitado para orígenes permitidos`);
+    
   } catch (error) {
-    console.error(' Error al iniciar el servidor:', error);
+    console.error('❌ Error al iniciar el servidor:', error);
+    process.exit(1);
   }
-})();
+}
+
+// Iniciar el servidor
+startServer();
