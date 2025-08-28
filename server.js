@@ -41,6 +41,8 @@ app.use('/archivos', express.static(path.join(__dirname, 'generated')));
 // Configurar Apollo Server
 const server = new ApolloServer({
   schema,
+  cache: 'bounded',
+  persistedQueries: false,
   context: async ({ req }) => {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
