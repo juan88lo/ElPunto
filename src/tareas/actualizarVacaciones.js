@@ -25,7 +25,7 @@ async function actualizarVacacionesEmpleados() {
 
     await empleado.save();
   }
-  console.log('✅ Vacaciones de empleados actualizadas');
+  console.log('Vacaciones de empleados actualizadas');
 }
 
 module.exports = actualizarVacacionesEmpleados;

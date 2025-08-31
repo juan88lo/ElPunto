@@ -14,18 +14,6 @@ const sequelize = isTest
         port: process.env.DB_PORT,
         dialect: 'mysql',
         logging: false,
-        dialectOptions: {
-          connectTimeout: 60000,
-        },
-        pool: {
-          max: 5,
-          min: 0,
-          acquire: 60000,
-          idle: 10000
-        },
-        retry: {
-          max: 3
-        }
       }
     );
 

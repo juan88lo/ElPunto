@@ -2105,7 +2105,7 @@ const RootMutation = new GraphQLObjectType({
 
 
     ///reporte inventario 
-    // ✅ Esto es correcto:
+    // Esto es correcto:
     generarInventarioPDF: {
       type: GraphQLString, // o el tipo de dato que retorna (ej: URL como string)
       args: {

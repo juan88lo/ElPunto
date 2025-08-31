@@ -46,7 +46,7 @@ cron.schedule('0 * * * *', async () => { // cada hora
   await transporter.sendMail({
     from: '"Alertas Stock" <alertas@tu-dominio.com>',
     to:   'encargado@tu-dominio.com',
-    subject: '⚠️ Productos con existencias bajas',
+    subject: 'Productos con existencias bajas',
     html,
   });
 

@@ -16,7 +16,11 @@ module.exports = async function cerrarCajasAutomaticamente(models) {
       fechaApertura: { [Op.lt]: hoy12 }
     }
   });
-  console.log(`${cajas} cajas.`);
+  
+  if (cajas.length === 0) {
+    return;
+  }
+  
   for (const caja of cajas) {
     const ventas = await Factura.sum('total', { where: { cajaId: caja.id } });
     const montoSistema = (caja.montoInicial || 0) + (ventas || 0);
