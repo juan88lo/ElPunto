@@ -1,0 +1,268 @@
+/* Solución ESPECÍFICA para eliminar franjas blancas SOLO en modo oscuro */
+
+/* Variables CSS para el tema oscuro */
+:root {
+  --dark-bg-primary: #0f0f0f;
+  --dark-bg-secondary: #1e1e1e;
+  --dark-bg-tertiary: #2a2a2a;
+  --dark-border: #333333;
+  --dark-text-primary: #ffffff;
+  --dark-text-secondary: #b0b0b0;
+  
+  /* Variables para modo claro */
+  --light-bg-primary: #fafafa;
+  --light-bg-secondary: #ffffff;
+  --light-text-primary: #1a1a1a;
+  --light-text-secondary: #666666;
+  --light-border: #e0e0e0;
+}
+
+/* SOLO aplicar estas reglas cuando el modo oscuro esté ACTIVAMENTE seleccionado */
+.dark-mode,
+[data-theme="dark"],
+[data-mui-color-scheme="dark"] {
+  /* Elementos HTML base - SOLO en modo oscuro */
+  html, body {
+    background-color: var(--dark-bg-primary) !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Root de la aplicación - SOLO en modo oscuro */
+  #root {
+    background-color: var(--dark-bg-primary) !important;
+    color: var(--dark-text-primary) !important;
+    min-height: 100vh !important;
+  }
+
+  /* Elementos que DEBEN tener fondo oscuro primario */
+  .MuiContainer-root,
+  main, section,
+  .main-content, .content-wrapper,
+  .dashboard-container {
+    background-color: var(--dark-bg-primary) !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Elementos que DEBEN tener fondo oscuro secundario */
+  .MuiPaper-root,
+  .MuiCard-root,
+  .MuiDialog-paper,
+  .MuiMenu-paper,
+  .MuiPopover-paper,
+  .MuiTooltip-tooltip,
+  .MuiSnackbar-root,
+  .MuiAccordion-root,
+  .MuiExpansionPanel-root {
+    background-color: var(--dark-bg-secondary) !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* AppBar y Toolbar */
+  .MuiAppBar-root {
+    background-color: var(--dark-bg-tertiary) !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  .MuiToolbar-root {
+    background-color: transparent !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Texto y tipografía */
+  .MuiTypography-root,
+  p, h1, h2, h3, h4, h5, h6, span, label, a {
+    color: var(--dark-text-primary) !important;
+  }
+
+  .MuiTypography-body2,
+  .MuiTypography-caption,
+  .MuiFormHelperText-root {
+    color: var(--dark-text-secondary) !important;
+  }
+
+  /* Inputs y campos de formulario */
+  .MuiTextField-root,
+  .MuiOutlinedInput-root,
+  .MuiFilledInput-root,
+  .MuiInput-root {
+    background-color: var(--dark-bg-secondary) !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  .MuiInputBase-input {
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Botones */
+  .MuiButton-root {
+    color: var(--dark-text-primary) !important;
+  }
+
+  .MuiIconButton-root {
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Tablas */
+  .MuiTable-root {
+    background-color: var(--dark-bg-secondary) !important;
+  }
+
+  .MuiTableHead-root {
+    background-color: var(--dark-bg-tertiary) !important;
+  }
+
+  .MuiTableBody-root {
+    background-color: var(--dark-bg-secondary) !important;
+  }
+
+  .MuiTableRow-root {
+    background-color: transparent !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  .MuiTableCell-root {
+    background-color: transparent !important;
+    color: var(--dark-text-primary) !important;
+    border-color: var(--dark-border) !important;
+  }
+
+  /* Listas y elementos de navegación */
+  .MuiList-root {
+    background-color: var(--dark-bg-secondary) !important;
+  }
+
+  .MuiListItem-root {
+    background-color: transparent !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  .MuiListItemText-root {
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Selectores y dropdowns */
+  .MuiSelect-select {
+    background-color: var(--dark-bg-secondary) !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Checkboxes y radio buttons */
+  .MuiCheckbox-root,
+  .MuiRadio-root,
+  .MuiSwitch-root {
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Dividers */
+  .MuiDivider-root {
+    background-color: var(--dark-border) !important;
+    border-color: var(--dark-border) !important;
+  }
+
+  /* Elementos de navegación */
+  .MuiTabs-root {
+    background-color: var(--dark-bg-secondary) !important;
+  }
+
+  .MuiTab-root {
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Elementos específicos con elevation */
+  .MuiPaper-elevation0,
+  .MuiPaper-elevation1,
+  .MuiPaper-elevation2,
+  .MuiPaper-elevation3,
+  .MuiPaper-elevation4,
+  .MuiPaper-elevation8,
+  .MuiPaper-elevation12,
+  .MuiPaper-elevation16,
+  .MuiPaper-elevation24 {
+    background-color: var(--dark-bg-secondary) !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Cualquier elemento con fondo blanco específico - SOLO EN MODO OSCURO */
+  [style*="background-color: white"],
+  [style*="background-color: #fff"],
+  [style*="background-color: #ffffff"],
+  [style*="background-color: rgb(255, 255, 255)"],
+  [style*="background: white"],
+  [style*="background: #fff"],
+  [style*="background: #ffffff"],
+  [style*="background: rgb(255, 255, 255)"] {
+    background-color: var(--dark-bg-secondary) !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Clases comunes que pueden tener fondo blanco - SOLO EN MODO OSCURO */
+  .white-bg,
+  .bg-white,
+  .background-white,
+  .bg-light,
+  .light-bg {
+    background-color: var(--dark-bg-secondary) !important;
+    color: var(--dark-text-primary) !important;
+  }
+
+  /* Estados hover y focus */
+  .MuiButton-root:hover,
+  .MuiIconButton-root:hover,
+  .MuiListItem-root:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .MuiTableRow-root:hover {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar {
+    background-color: var(--dark-bg-primary) !important;
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: var(--dark-bg-secondary) !important;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--dark-bg-tertiary) !important;
+  }
+
+  /* Específico para Material-UI containers en modo oscuro */
+  [class*="MuiContainer"] {
+    background-color: var(--dark-bg-primary) !important;
+  }
+}
+
+/* MODO CLARO - Asegurar que funcione correctamente */
+body:not(.dark-mode):not([data-theme="dark"]),
+html:not(.dark-mode):not([data-theme="dark"]) {
+  background-color: var(--light-bg-primary) !important;
+  color: var(--light-text-primary) !important;
+}
+
+#root:not(.dark-mode) {
+  background-color: var(--light-bg-primary) !important;
+  color: var(--light-text-primary) !important;
+}
+
+/* NO aplicar reglas de modo oscuro cuando prefers-color-scheme es dark PERO el usuario eligió modo claro */
+@media (prefers-color-scheme: dark) {
+  /* Solo aplicar si no hay override explícito del usuario */
+  html:not([data-theme="light"]):not(.light-mode),
+  body:not([data-theme="light"]):not(.light-mode) {
+    background-color: var(--dark-bg-primary);
+    color: var(--dark-text-primary);
+  }
+  
+  #root:not([data-theme="light"]):not(.light-mode) {
+    background-color: var(--dark-bg-primary);
+    color: var(--dark-text-primary);
+  }
+}
+
+/* Asegurar transiciones suaves entre modos */
+html, body, #root {
+  transition: background-color 0.3s ease, color 0.3s ease !important;
+}

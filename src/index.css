@@ -1,0 +1,90 @@
+/* index.css - Estilos globales con soporte para modo oscuro */
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  min-height: 100vh;
+  /* Colores por defecto del modo claro */
+  background-color: #fafafa;
+  color: #1a1a1a;
+  font-family: 'Roboto', sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Asegurar que * tenga box-sizing correcto */
+* {
+  box-sizing: border-box;
+}
+
+/* MODO CLARO explícito - colores claros por defecto */
+.light-mode,
+[data-theme="light"] {
+  html, body, #root {
+    background-color: #fafafa !important;
+    color: #1a1a1a !important;
+  }
+}
+
+html.light-mode,
+body.light-mode,
+html[data-theme="light"],
+body[data-theme="light"] {
+  background-color: #fafafa !important;
+  color: #1a1a1a !important;
+}
+
+#root.light-mode,
+html[data-theme="light"] #root,
+body[data-theme="light"] #root {
+  background-color: #fafafa !important;
+  color: #1a1a1a !important;
+}
+
+/* MODO OSCURO - solo cuando se activa explícitamente */
+.dark-mode,
+[data-theme="dark"],
+[data-mui-color-scheme="dark"] {
+  html, body, #root {
+    background-color: #0f0f0f !important;
+    color: #ffffff !important;
+  }
+}
+
+/* Aplicar modo oscuro directamente a los elementos */
+html.dark-mode,
+body.dark-mode,
+html[data-theme="dark"],
+body[data-theme="dark"] {
+  background-color: #0f0f0f !important;
+  color: #ffffff !important;
+}
+
+#root.dark-mode,
+html[data-theme="dark"] #root,
+body[data-theme="dark"] #root {
+  background-color: #0f0f0f !important;
+  color: #ffffff !important;
+}
+
+/* Borderss para modo oscuro */
+.dark-mode * {
+  border-color: #333333;
+}
+
+/* NO aplicar modo oscuro automáticamente basado en preferencias del sistema */
+/* Solo si el usuario no ha elegido explícitamente un modo */
+@media (prefers-color-scheme: dark) {
+  /* Solo aplicar si no hay override explícito del usuario */
+  html:not([data-theme]):not(.light-mode):not(.dark-mode),
+  body:not([data-theme]):not(.light-mode):not(.dark-mode) {
+    background-color: #0f0f0f;
+    color: #ffffff;
+  }
+  
+  #root:not([data-theme]):not(.light-mode):not(.dark-mode) {
+    background-color: #0f0f0f;
+    color: #ffffff;
+  }
+}
