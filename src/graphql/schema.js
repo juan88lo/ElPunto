@@ -785,7 +785,7 @@ const RootQuery = new GraphQLObjectType({
         const where = search
           ? {
             [Op.or]: [
-              { nombre: { [Op.iLike]: `%${search}%` } },
+              { nombre: { [Op.like]: `%${search}%` } },
               { codigoBarras: { [Op.like]: `%${search}%` } }
             ]
           }
