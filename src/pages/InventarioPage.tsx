@@ -69,6 +69,27 @@ export default function InventarioPage() {
     const { data, loading, error, refetch } = useQuery(GET_INVENTARIOS, {
         variables: { search: '' }, // Siempre buscar todo mientras se arregla el backend
         fetchPolicy: 'cache-and-network',
+        errorPolicy: 'all', // Mostrar datos parciales aunque haya errores
+        notifyOnNetworkStatusChange: true,
+        onError: (error) => {
+            console.error('Error en consulta de inventarios:', error);
+            if (error.networkError) {
+                if (error.networkError.message.includes('ECONNRESET')) {
+                    setServerError('Error de conexión. Reintentando automáticamente...');
+                    // Reintentar después de 2 segundos
+                    setTimeout(() => {
+                        refetch().catch(console.error);
+                    }, 2000);
+                } else {
+                    setServerError('Error de red. Verificando conexión...');
+                }
+            } else {
+                setServerError('Error al cargar el inventario');
+            }
+        },
+        onCompleted: () => {
+            setServerError(null); // Limpiar errores cuando la consulta es exitosa
+        }
     });
 
     // Filtrado del lado del cliente como solución temporal
@@ -206,7 +227,28 @@ export default function InventarioPage() {
                         </Button>
                     </Grid>
                 </Grid>
-                {error && <Alert severity="error" sx={{ mb: 2 }}>{error.message}</Alert>}
+                
+                {/* Manejo mejorado de errores */}
+                {(error || serverError) && (
+                    <Alert 
+                        severity="error" 
+                        sx={{ mb: 2 }}
+                        action={
+                            <Button 
+                                color="inherit" 
+                                size="small" 
+                                onClick={() => {
+                                    setServerError(null);
+                                    refetch();
+                                }}
+                            >
+                                Reintentar
+                            </Button>
+                        }
+                    >
+                        {serverError || error?.message || 'Error desconocido'}
+                    </Alert>
+                )}
                 <Paper elevation={1} sx={{ 
                     p: 2,
                     bgcolor: theme.palette.mode === 'dark' ? '#3a2a3a' : 'background.paper',
