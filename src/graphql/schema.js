@@ -702,23 +702,27 @@ const RootQuery = new GraphQLObjectType({
     },
     cajas: {
       type: new GraphQLList(CajaType),
-      resolve: async (_, __, ctx) => {
+      args: {
+        fechaInicio: { type: GraphQLString },
+        fechaFin: { type: GraphQLString },
+        limit: { type: GraphQLInt, defaultValue: 100 }
+      },
+      resolve: async (_, { fechaInicio, fechaFin, limit }, ctx) => {
         if (!ctx.usuario) throw new Error('No autenticado');
         if (!await ctx.verificarPermiso('ver_cajas')) throw new Error('Sin permiso');
 
-        const hoy = new Date();
-        hoy.setHours(0, 0, 0, 0);
-        const mañana = new Date(hoy);
-        mañana.setDate(hoy.getDate() + 1);
+        const where = {};
+
+        if (fechaInicio && fechaFin) {
+          where.fechaApertura = {
+            [Op.between]: [fechaInicio, fechaFin]
+          };
+        }
 
         return await Caja.findAll({
-          where: {
-            fechaApertura: {
-              [Op.gte]: hoy,
-              [Op.lt]: mañana
-            }
-          },
-          order: [['fechaApertura', 'DESC']]
+          where,
+          order: [['fechaApertura', 'DESC']],
+          limit
         });
       }
     },
