@@ -15,7 +15,7 @@ DetalleFactura.init(
     inventarioId: { type: DataTypes.INTEGER, allowNull: false, references: { model: Inventario, key: 'id' } },
 
     // datos de la línea
-    cantidad:     { type: DataTypes.DECIMAL(10,3),  allowNull: false },
+    cantidad:     { type: DataTypes.INTEGER,  allowNull: false },
     precio:       { type: DataTypes.DECIMAL(10,2), allowNull: false },
     descuentoPct: { type: DataTypes.DECIMAL(5,2), allowNull: false, defaultValue: 0 }, // %
     impuestoPct:  { type: DataTypes.DECIMAL(5,2), allowNull: false, defaultValue: 0 }, // %
