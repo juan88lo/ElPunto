@@ -183,7 +183,7 @@ const ProductoInputType = new GraphQLInputObjectType({
   name: 'ProductoInput',
   fields: {
     codigoBarras: { type: new GraphQLNonNull(GraphQLString) },
-    cantidad: { type: new GraphQLNonNull(GraphQLFloat) }
+    cantidad: { type: new GraphQLNonNull(GraphQLInt) }
   }
 });
 
@@ -231,7 +231,7 @@ const FacturaType = new GraphQLObjectType({
         name: 'DetalleFactura',
         fields: {
           id: { type: GraphQLID },
-          cantidad: { type: GraphQLFloat },
+          cantidad: { type: GraphQLInt },
           precio: { type: GraphQLFloat },
           total: { type: GraphQLFloat },
           producto: {
