@@ -15,6 +15,9 @@ Factura.init(
     impuesto: { type: DataTypes.DECIMAL(10, 2) },
     total: { type: DataTypes.DECIMAL(10, 2) },
     formaPago: { type: DataTypes.ENUM('efectivo', 'tarjeta', 'sinpe', 'mixto') },
+    // Campos para pago mixto
+    montoEfectivo: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+    montoTarjeta: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
     estado: { type: DataTypes.ENUM('emitida', 'anulada', 'devuelta'), defaultValue: 'emitida' },
   },
   { sequelize, modelName: 'Factura', tableName: 'Facturas', timestamps: false }

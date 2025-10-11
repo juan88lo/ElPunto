@@ -95,6 +95,7 @@ const FormaPagoEnum = new GraphQLEnumType({
   values: {
     EFECTIVO: { value: 'EFECTIVO' },
     TARJETA: { value: 'TARJETA' },
+    MIXTO: { value: 'MIXTO' },
   },
 });
 
@@ -182,7 +183,7 @@ const ProductoInputType = new GraphQLInputObjectType({
   name: 'ProductoInput',
   fields: {
     codigoBarras: { type: new GraphQLNonNull(GraphQLString) },
-    cantidad: { type: new GraphQLNonNull(GraphQLInt) }
+    cantidad: { type: new GraphQLNonNull(GraphQLFloat) }
   }
 });
 
@@ -195,6 +196,9 @@ const FacturaInputType = new GraphQLInputObjectType({
     // clienteId: { type: GraphQLID },
     formaPago: { type: new GraphQLNonNull(FormaPagoEnum) },
     productos: { type: new GraphQLNonNull(new GraphQLList(ProductoInputType)) },
+    // Campos para pago mixto
+    montoEfectivo: { type: GraphQLFloat },
+    montoTarjeta: { type: GraphQLFloat },
   },
 });
 
@@ -210,6 +214,9 @@ const FacturaType = new GraphQLObjectType({
     impuesto: { type: GraphQLFloat },
     total: { type: GraphQLFloat },
     formaPago: { type: GraphQLString },
+    // Campos para pago mixto
+    montoEfectivo: { type: GraphQLFloat },
+    montoTarjeta: { type: GraphQLFloat },
     estado: { type: GraphQLString },
     usuario: {
       type: UsuarioType,
@@ -224,7 +231,7 @@ const FacturaType = new GraphQLObjectType({
         name: 'DetalleFactura',
         fields: {
           id: { type: GraphQLID },
-          cantidad: { type: GraphQLInt },
+          cantidad: { type: GraphQLFloat },
           precio: { type: GraphQLFloat },
           total: { type: GraphQLFloat },
           producto: {
@@ -1615,7 +1622,7 @@ const RootMutation = new GraphQLObjectType({
         if (!(await ctx.verificarPermiso('crear_factura')))
           throw new Error('Sin permiso');
 
-        const { cajaId, usuarioId, formaPago, productos } = input;
+        const { cajaId, usuarioId, formaPago, productos, montoEfectivo, montoTarjeta } = input;
 
         const t = await sequelize.transaction();
         try {
@@ -1655,6 +1662,17 @@ const RootMutation = new GraphQLObjectType({
           const totalFact = subtotal - descuento + impuesto;
           const formaPagoOk = formaPago.toLowerCase();
 
+          // ─── Validación para pago mixto ───
+          if (formaPagoOk === 'mixto') {
+            if (!montoEfectivo || !montoTarjeta) {
+              throw new Error('Para pago mixto debe especificar montoEfectivo y montoTarjeta');
+            }
+            const sumaMontos = parseFloat(montoEfectivo) + parseFloat(montoTarjeta);
+            if (Math.abs(sumaMontos - totalFact) > 0.01) { // tolerancia de 1 centavo por redondeo
+              throw new Error(`La suma de montos (${sumaMontos}) no coincide con el total (${totalFact})`);
+            }
+          }
+
           // ─── 2. Generar consecutivo ───
           const consecutivoRow = await ConsecutivoFactura.findOne({
             transaction: t,
@@ -1672,21 +1690,26 @@ const RootMutation = new GraphQLObjectType({
           const consecutivo = `EP-${numero.toString().padStart(6, '0')}`;
 
           // ─── 3. Crear factura ───
-          const factura = await Factura.create(
-            {
-              cajaId,
-              usuarioId,
-              consecutivo,
-              fecha: new Date(),
-              subtotal,
-              descuento,
-              impuesto,
-              total: totalFact,
-              formaPago: formaPagoOk,
-              estado: 'emitida',
-            },
-            { transaction: t }
-          );
+          const facturaData = {
+            cajaId,
+            usuarioId,
+            consecutivo,
+            fecha: new Date(),
+            subtotal,
+            descuento,
+            impuesto,
+            total: totalFact,
+            formaPago: formaPagoOk,
+            estado: 'emitida',
+          };
+
+          // Agregar campos de pago mixto si corresponde
+          if (formaPagoOk === 'mixto') {
+            facturaData.montoEfectivo = parseFloat(montoEfectivo);
+            facturaData.montoTarjeta = parseFloat(montoTarjeta);
+          }
+
+          const factura = await Factura.create(facturaData, { transaction: t });
 
           for (const d of detalles) {
 
