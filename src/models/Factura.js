@@ -18,6 +18,12 @@ Factura.init(
     // Campos para pago mixto
     montoEfectivo: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
     montoTarjeta: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+  // Idempotency key to avoid duplicate invoices
+  idempotencyKey: { type: DataTypes.STRING(64), allowNull: true, unique: true },
+    // Transaction ID from WirePOS payment terminal (local)
+    transactionId: { type: DataTypes.STRING(255), allowNull: true },
+    // IDRequest from LARO API (comprobante de pago oficial)
+    invoiceWireposId: { type: DataTypes.STRING(255), allowNull: true, unique: true },
     estado: { type: DataTypes.ENUM('emitida', 'anulada', 'devuelta'), defaultValue: 'emitida' },
   },
   { sequelize, modelName: 'Factura', tableName: 'Facturas', timestamps: false }

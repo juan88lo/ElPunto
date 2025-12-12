@@ -20,6 +20,7 @@ const PagoProveedor = require('./PagoProveedor');
 const Planilla = require('./Planilla');
 const ConsecutivoFactura = require('./ConsecutivoFactura');
 const VacacionTomada = require('./VacacionesTomadas');
+const WireposTransaccion = require('./WireposTransaccion');
 // Relaciones existentes
 TipoUsuario.hasMany(Usuario, { foreignKey: 'tipoUsuarioId' });
 Usuario.belongsTo(TipoUsuario, { foreignKey: 'tipoUsuarioId' });
@@ -72,6 +73,10 @@ Bitacora.belongsTo(NotaCredito, { foreignKey: 'entidadId', constraints: false })
 Empleado.hasMany(Planilla, { foreignKey: 'empleadoId' });
 Planilla.belongsTo(Empleado, { foreignKey: 'empleadoId' });
 
+// Relación Factura -> WireposTransaccion
+Factura.hasMany(WireposTransaccion, { foreignKey: 'facturaId' });
+WireposTransaccion.belongsTo(Factura, { foreignKey: 'facturaId' });
+
 module.exports = {
   sequelize,
   Usuario,
@@ -92,5 +97,6 @@ module.exports = {
   PagoProveedor,
   Planilla,
   ConsecutivoFactura,
-  VacacionTomada
+  VacacionTomada,
+  WireposTransaccion
 };

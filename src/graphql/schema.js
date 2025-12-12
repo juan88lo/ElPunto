@@ -199,6 +199,17 @@ const FacturaInputType = new GraphQLInputObjectType({
     // Campos para pago mixto
     montoEfectivo: { type: GraphQLFloat },
     montoTarjeta: { type: GraphQLFloat },
+    // Idempotency key (optional) to avoid duplicate factura creation if retry happens
+    idempotencyKey: { type: GraphQLString },
+    // Transaction ID from WirePOS payment terminal
+    transactionId: { type: GraphQLString },
+    // WirePOS data sent directly from frontend (SIMPLIFIED APPROACH)
+    wireposInvoiceId: { type: GraphQLString },      // IDRequest de LARO
+    wireposInvoice: { type: GraphQLString },        // Invoice generado por WirePOS (subcampo 10)
+    wireposAuthCode: { type: GraphQLString },       // Código de autorización
+    wireposResponseCode: { type: GraphQLString },   // Código de respuesta (00=Aprobado)
+    wireposCardLast4: { type: GraphQLString },      // Últimos 4 dígitos de tarjeta
+    wireposCardType: { type: GraphQLString },       // Tipo de tarjeta (VISA, MASTERCARD)
   },
 });
 
@@ -217,6 +228,9 @@ const FacturaType = new GraphQLObjectType({
     // Campos para pago mixto
     montoEfectivo: { type: GraphQLFloat },
     montoTarjeta: { type: GraphQLFloat },
+    idempotencyKey: { type: GraphQLString },
+    transactionId: { type: GraphQLString },
+    invoiceWireposId: { type: GraphQLString },  // IDRequest de LARO
     estado: { type: GraphQLString },
     usuario: {
       type: UsuarioType,
@@ -497,6 +511,33 @@ const VacacionTomadaType = new GraphQLObjectType({
     dias: { type: GraphQLFloat },
     fecha: { type: GraphQLString },
     estado: { type: GraphQLString },
+  }),
+});
+
+// ============ WIREPOS TYPES ============
+
+const WirePosResponseType = new GraphQLObjectType({
+  name: 'WirePosResponse',
+  fields: () => ({
+    idRequest: { type: GraphQLString },
+    responseCode: { type: GraphQLString },
+    responseCodeDescription: { type: GraphQLString },
+    responseString: { type: GraphQLString },
+    timestamp: { type: GraphQLString },
+  }),
+});
+
+const WirePosTransactionType = new GraphQLObjectType({
+  name: 'WirePosTransaction',
+  fields: () => ({
+    requestId: { type: GraphQLString },
+    deviceId: { type: GraphQLString },
+    command: { type: GraphQLString },
+    amount: { type: GraphQLFloat },
+    invoice: { type: GraphQLString },
+    status: { type: GraphQLString },
+    createdAt: { type: GraphQLString },
+    response: { type: GraphQLString },
   }),
 });
 
@@ -932,6 +973,50 @@ const RootQuery = new GraphQLObjectType({
           include: [{ model: Empleado, as: 'empleado' }]
         });
       }
+    },
+
+    // ============ WIREPOS QUERIES ============
+    checkRequest: {
+      type: WirePosResponseType,
+      args: {
+        requestId: { type: new GraphQLNonNull(GraphQLString) },
+      },
+      resolve: async (_, { requestId }) => {
+        // Importar funciones desde server.js
+        const { getWirePosTransaction } = require('../server');
+        
+        const request = getWirePosTransaction(requestId);
+        
+        if (!request) {
+          return {
+            idRequest: requestId,
+            responseCode: 'ERROR',
+            responseCodeDescription: 'Request not found',
+            responseString: 'ERROR',
+            timestamp: new Date().toISOString()
+          };
+        }
+
+        if (request.status === 'DONE' && request.result) {
+          // Transacción completada
+          return {
+            idRequest: requestId,
+            responseCode: request.result.responseCode || '00',
+            responseCodeDescription: request.result.message || 'Transacción aprobada',
+            responseString: JSON.stringify(request.result),
+            timestamp: request.completedAt || new Date().toISOString()
+          };
+        } else {
+          // Transacción pendiente
+          return {
+            idRequest: requestId,
+            responseCode: '01',
+            responseCodeDescription: 'Request pending',
+            responseString: '01',
+            timestamp: new Date().toISOString()
+          };
+        }
+      },
     },
   }
 });
@@ -1621,8 +1706,23 @@ const RootMutation = new GraphQLObjectType({
         if (!ctx.usuario) throw new Error('No autenticado');
         if (!(await ctx.verificarPermiso('crear_factura')))
           throw new Error('Sin permiso');
+        const { 
+          cajaId, usuarioId, formaPago, productos, montoEfectivo, montoTarjeta, 
+          idempotencyKey, transactionId,
+          wireposInvoiceId, wireposInvoice, wireposAuthCode, wireposResponseCode, 
+          wireposCardLast4, wireposCardType 
+        } = input;
 
-        const { cajaId, usuarioId, formaPago, productos, montoEfectivo, montoTarjeta } = input;
+        // If idempotencyKey provided, check for existing factura and return it to avoid duplicates
+        if (idempotencyKey) {
+          try {
+            const existente = await Factura.findOne({ where: { idempotencyKey } });
+            if (existente) return existente;
+          } catch (e) {
+            // ignore index errors or others and continue to create
+            console.warn('Error checking idempotencyKey', e.message || e);
+          }
+        }
 
         const t = await sequelize.transaction();
         try {
@@ -1709,7 +1809,34 @@ const RootMutation = new GraphQLObjectType({
             facturaData.montoTarjeta = parseFloat(montoTarjeta);
           }
 
-          const factura = await Factura.create(facturaData, { transaction: t });
+          // Attach idempotencyKey to factura data when provided so it is persisted
+          if (idempotencyKey) facturaData.idempotencyKey = idempotencyKey;
+
+          // Attach transactionId from WirePOS payment when provided
+          if (transactionId) facturaData.transactionId = transactionId;
+          
+          // Attach invoiceWireposId directly from frontend (SIMPLIFIED)
+          if (wireposInvoiceId) facturaData.invoiceWireposId = wireposInvoiceId;
+
+          let factura;
+          try {
+            factura = await Factura.create(facturaData, { transaction: t });
+          } catch (createErr) {
+            // Handle unique constraint race: another request may have created the factura with same key
+            const isUniqueErr = createErr && (createErr.name === 'SequelizeUniqueConstraintError' || createErr instanceof Sequelize.UniqueConstraintError);
+            if (isUniqueErr && idempotencyKey) {
+              // rollback our transaction and return the existing factura
+              try {
+                await t.rollback();
+              } catch (rbErr) {
+                console.warn('Rollback failed after unique constraint error', rbErr.message || rbErr);
+              }
+              const existente = await Factura.findOne({ where: { idempotencyKey } });
+              if (existente) return existente;
+              // if not found, rethrow original error
+            }
+            throw createErr;
+          }
 
           for (const d of detalles) {
 
@@ -1749,6 +1876,43 @@ const RootMutation = new GraphQLObjectType({
           );
 
           await t.commit();
+
+          // ─── 7. Guardar datos de WirePOS (SIMPLIFIED - datos desde frontend) ───
+          if (wireposInvoiceId || transactionId) {
+            try {
+              const { WireposTransaccion } = require('../models');
+              
+              // Crear registro en WireposTransacciones con datos del frontend
+              await WireposTransaccion.create({
+                transactionId: transactionId,
+                invoiceWireposId: wireposInvoiceId,
+                facturaId: factura.id,
+                wireposInvoice: wireposInvoice,
+                responseCode: wireposResponseCode,
+                authCode: wireposAuthCode,
+                cardLast4: wireposCardLast4,
+                cardType: wireposCardType,
+                status: wireposResponseCode === '00' ? 'DONE' : 'ERROR',
+                responseMessage: wireposResponseCode === '00' ? 'Aprobado' : 'Rechazado',
+                amount: totalFact,
+                invoice: consecutivo,
+                deviceId: 'FRONTEND',
+                transactionType: 'V',
+                environment: process.env.NODE_ENV || 'DEV'
+              });
+              
+              console.log('[GraphQL] ✅ Datos WirePOS guardados:', {
+                facturaId: factura.id,
+                wireposInvoiceId,
+                wireposInvoice,
+                authCode: wireposAuthCode
+              });
+            } catch (wireposErr) {
+              // No fallar la factura si WirePOS falla
+              console.error('[GraphQL] ❌ Error guardando datos WirePOS:', wireposErr.message);
+            }
+          }
+
           return factura;
         } catch (err) {
           await t.rollback();
@@ -2267,6 +2431,48 @@ const RootMutation = new GraphQLObjectType({
         }
         return resultados;
       }
+    },
+
+    // ============ WIREPOS MUTATIONS ============
+    addRequest: {
+      type: WirePosResponseType,
+      args: {
+        deviceId: { type: new GraphQLNonNull(GraphQLString) },
+        command: { type: new GraphQLNonNull(GraphQLString) },
+        amount: { type: GraphQLFloat },
+        invoice: { type: GraphQLString },
+        idTransaction: { type: GraphQLInt },
+      },
+      resolve: async (_, { deviceId, command, amount = 0, invoice = '', idTransaction = 0 }) => {
+        const { v4: uuidv4 } = require('uuid');
+        const { addWirePosTransaction } = require('../server');
+        
+        const requestId = uuidv4();
+        
+        const request = {
+          requestId,
+          deviceId,
+          command,
+          amount,
+          invoice,
+          idTransaction,
+          status: 'PENDING',
+          createdAt: new Date(),
+          response: null
+        };
+
+        addWirePosTransaction(requestId, request);
+        
+        console.log(`[GraphQL] AddRequest::IDRequest[${requestId}] Command[${command}]`);
+
+        return {
+          idRequest: requestId,
+          responseCode: '00',
+          responseCodeDescription: 'Request added',
+          responseString: 'Request added',
+          timestamp: new Date().toISOString()
+        };
+      },
     },
   },
 

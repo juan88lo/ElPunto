@@ -8,6 +8,7 @@
     "build": "echo 'No build step needed for JavaScript'",
     "start": "node src/server.js",
     "dev": "node src/server.js",
+    "wirepos:simulator": "node scripts/simulate-wirepos-exe.js",
     "test": "cross-env NODE_ENV=test jest --runInBand"
   },
   "keywords": [],
@@ -20,6 +21,7 @@
     "@types/jsonwebtoken": "^9.0.9",
     "apollo-server": "^3.13.0",
     "apollo-server-express": "^3.13.0",
+    "axios": "^1.13.2",
     "bcrypt": "^5.1.1",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
