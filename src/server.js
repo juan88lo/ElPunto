@@ -17,6 +17,7 @@ const {
 
 const schema = require('./graphql/schema');
 const verificarPermiso = require('../src/utils/permisos');
+const migrateWireposColumns = require('./config/migrateWirepos');
 const path = require('path');
 const cors = require('cors');
 const app = express();
@@ -373,6 +374,9 @@ const server = new ApolloServer({
   try {
     // ✨ Iniciar WirePOS Intermediario en puerto 8765
     initWirePosServer();
+
+    // 🔄 Ejecutar migraciones automáticas de Wirepos
+    await migrateWireposColumns();
 
     // Sincronizar la base de datos
     await sequelize.sync({ alter: true });

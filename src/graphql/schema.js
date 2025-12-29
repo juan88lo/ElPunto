@@ -231,6 +231,11 @@ const FacturaType = new GraphQLObjectType({
     idempotencyKey: { type: GraphQLString },
     transactionId: { type: GraphQLString },
     invoiceWireposId: { type: GraphQLString },  // IDRequest de LARO
+    wireposInvoice: { type: GraphQLString },    // Invoice Wirepos (subcampo 10) para anulaciones
+    wireposAuthCode: { type: GraphQLString },   // Código de autorización
+    wireposResponseCode: { type: GraphQLString }, // Código de respuesta (00=Aprobado)
+    wireposCardLast4: { type: GraphQLString },  // Últimos 4 dígitos de tarjeta
+    wireposCardType: { type: GraphQLString },   // Tipo de tarjeta (VISA, MASTERCARD)
     estado: { type: GraphQLString },
     usuario: {
       type: UsuarioType,
@@ -918,6 +923,22 @@ const RootQuery = new GraphQLObjectType({
           where: { estado: 'emitida' },
           order: [['fecha', 'DESC']],
           limit: 100, // opcional
+        });
+      }
+    },
+
+    // — facturas anuladas —
+    facturasAnuladas: {
+      type: new GraphQLList(FacturaType),
+      resolve: async (_, __, context) => {
+        if (!(await context.verificarPermiso('ver_facturas'))) {
+          throw new Error('Sin permiso para ver facturas');
+        }
+
+        return Factura.findAll({
+          where: { estado: 'anulada' },
+          order: [['fecha', 'DESC']],
+          limit: 100,
         });
       }
     },
@@ -1817,6 +1838,15 @@ const RootMutation = new GraphQLObjectType({
           
           // Attach invoiceWireposId directly from frontend (SIMPLIFIED)
           if (wireposInvoiceId) facturaData.invoiceWireposId = wireposInvoiceId;
+          
+          // Attach wireposInvoice (subcampo 10) para anulaciones
+          if (wireposInvoice) facturaData.wireposInvoice = wireposInvoice;
+          
+          // Attach additional Wirepos data
+          if (wireposAuthCode) facturaData.wireposAuthCode = wireposAuthCode;
+          if (wireposResponseCode) facturaData.wireposResponseCode = wireposResponseCode;
+          if (wireposCardLast4) facturaData.wireposCardLast4 = wireposCardLast4;
+          if (wireposCardType) facturaData.wireposCardType = wireposCardType;
 
           let factura;
           try {

@@ -19,6 +19,7 @@ const {
 
 const schema = require('./graphql/schema');
 const verificarPermiso = require('./utils/permisos');
+const migrateWireposColumns = require('./config/migrateWirepos');
 
 // Configuración CORS
 const corsOptions = {
@@ -66,9 +67,11 @@ const server = new ApolloServer({
 // Función principal de inicio
 async function startServer() {
   try {
+    // Ejecutar migraciones automáticas de Wirepos
+    await migrateWireposColumns();
+    
     // Sincronizar la base de datos
     await sequelize.sync({ alter: true });
-    console.log('✅ Base de datos sincronizada');
 
     // Iniciar tareas programadas
     require('./tareas/scheduler')({ Caja, Factura, Bitacora });
@@ -87,8 +90,6 @@ async function startServer() {
     
     // Iniciar servidor
     await new Promise(resolve => httpServer.listen({ port: PORT, host: HOST }, resolve));
-    console.log(`🚀 Servidor GraphQL listo en http://${HOST}:${PORT}${server.graphqlPath}`);
-    console.log(`🌐 CORS habilitado para orígenes permitidos`);
     
   } catch (error) {
     console.error('❌ Error al iniciar el servidor:', error);

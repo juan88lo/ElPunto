@@ -24,6 +24,13 @@ Factura.init(
     transactionId: { type: DataTypes.STRING(255), allowNull: true },
     // IDRequest from LARO API (comprobante de pago oficial)
     invoiceWireposId: { type: DataTypes.STRING(255), allowNull: true, unique: true },
+    // Invoice de Wirepos (subcampo 10) necesario para anulaciones
+    wireposInvoice: { type: DataTypes.STRING(255), allowNull: true },
+    // Datos adicionales de Wirepos
+    wireposAuthCode: { type: DataTypes.STRING(255), allowNull: true },
+    wireposResponseCode: { type: DataTypes.STRING(10), allowNull: true },
+    wireposCardLast4: { type: DataTypes.STRING(4), allowNull: true },
+    wireposCardType: { type: DataTypes.STRING(50), allowNull: true },
     estado: { type: DataTypes.ENUM('emitida', 'anulada', 'devuelta'), defaultValue: 'emitida' },
   },
   { sequelize, modelName: 'Factura', tableName: 'Facturas', timestamps: false }

@@ -1,5 +1,5 @@
-const { Model,DataTypes } = require('sequelize');
+const { Model, DataTypes, Sequelize } = require('sequelize');
 const sequelize = require('../config/db');  // Importamos la instancia de sequelize
 
-// Exportar sequelize y DataTypes
-module.exports = { sequelize,Model, DataTypes };
+// Exportar sequelize, Sequelize (clase), Model y DataTypes
+module.exports = { sequelize, Sequelize, Model, DataTypes };
