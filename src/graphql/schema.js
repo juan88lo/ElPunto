@@ -22,7 +22,8 @@ const {
   Familia,
   Proveedor,
   Inventario,
-  ConsecutivoFactura, NotaCredito, DetalleNotaCredito, PagoProveedor, Planilla, VacacionTomada
+  ConsecutivoFactura, NotaCredito, DetalleNotaCredito, PagoProveedor, Planilla, VacacionTomada,
+  PromocionRifa, CuponRifa
 } = require('../models');
 const { Empleado } = require('../models');
 const { DetalleFactura: FacturaDetalle } = require('../models');
@@ -244,6 +245,83 @@ const FacturaType = new GraphQLObjectType({
     }
   })
 });
+
+// ========== TIPOS PARA PROMOCIONES Y CUPONES DE RIFA ==========
+
+const PromocionRifaType = new GraphQLObjectType({
+  name: 'PromocionRifa',
+  fields: () => ({
+    id: { type: GraphQLID },
+    titulo: { type: GraphQLString },
+    descripcion: { type: GraphQLString },
+    fechaInicio: { type: GraphQLString },
+    fechaSorteo: { type: GraphQLString },
+    montoMinimo: { type: GraphQLFloat },
+    cantidadProductosMin: { type: GraphQLInt },
+    activo: { type: GraphQLBoolean },
+    totalCupones: { type: GraphQLInt },
+    totalVentas: { type: GraphQLFloat },
+    cuponesReimpresos: { type: GraphQLInt },
+    cuponesMultiples: { type: GraphQLBoolean },
+    createdAt: { type: GraphQLString },
+    updatedAt: { type: GraphQLString },
+    cupones: {
+      type: new GraphQLList(CuponRifaType),
+      resolve: parent => CuponRifa.findAll({ where: { promocionId: parent.id } })
+    }
+  })
+});
+
+const CuponRifaType = new GraphQLObjectType({
+  name: 'CuponRifa',
+  fields: () => ({
+    id: { type: GraphQLID },
+    numeroCupon: { type: GraphQLString },
+    nombreCliente: { type: GraphQLString },
+    telefono: { type: GraphQLString },
+    montoFactura: { type: GraphQLFloat },
+    fechaEmision: { type: GraphQLString },
+    vecesImpreso: { type: GraphQLInt },
+    ultimaImpresion: { type: GraphQLString },
+    promocion: {
+      type: PromocionRifaType,
+      resolve: parent => PromocionRifa.findByPk(parent.promocionId)
+    },
+    factura: {
+      type: FacturaType,
+      resolve: parent => Factura.findByPk(parent.facturaId)
+    },
+    usuarioImpresion: {
+      type: UsuarioType,
+      resolve: parent => parent.impresoporUsuarioId ? Usuario.findByPk(parent.impresoporUsuarioId) : null
+    }
+  })
+});
+
+const PromocionRifaInputType = new GraphQLInputObjectType({
+  name: 'PromocionRifaInput',
+  fields: {
+    titulo: { type: new GraphQLNonNull(GraphQLString) },
+    descripcion: { type: GraphQLString },
+    fechaInicio: { type: new GraphQLNonNull(GraphQLString) },
+    fechaSorteo: { type: new GraphQLNonNull(GraphQLString) },
+    montoMinimo: { type: GraphQLFloat },
+    cantidadProductosMin: { type: GraphQLInt },
+    activo: { type: GraphQLBoolean },
+    cuponesMultiples: { type: GraphQLBoolean }
+  }
+});
+
+const CuponRifaInputType = new GraphQLInputObjectType({
+  name: 'CuponRifaInput',
+  fields: {
+    facturaId: { type: new GraphQLNonNull(GraphQLInt) },
+    nombreCliente: { type: GraphQLString },
+    telefono: { type: GraphQLString }
+  }
+});
+
+// ========== FIN TIPOS PROMOCIONES ==========
 
 /* ---- INPUT para crear/actualizar roles ---- */
 const TipoUsuarioInputType = new GraphQLInputObjectType({
@@ -933,6 +1011,154 @@ const RootQuery = new GraphQLObjectType({
         });
       }
     },
+
+    // ========== QUERIES DE PROMOCIONES ==========
+    promociones: {
+      type: new GraphQLList(PromocionRifaType),
+      resolve: async (_, __, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        return await PromocionRifa.findAll({ order: [['createdAt', 'DESC']] });
+      }
+    },
+
+    promocion: {
+      type: PromocionRifaType,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        return await PromocionRifa.findByPk(id);
+      }
+    },
+
+    promocionActiva: {
+      type: PromocionRifaType,
+      resolve: async (_, __, context) => {
+        const hoy = new Date().toISOString().split('T')[0];
+        return await PromocionRifa.findOne({
+          where: {
+            activo: true,
+            fechaInicio: { [Op.lte]: hoy },
+            fechaSorteo: { [Op.gte]: hoy }
+          }
+        });
+      }
+    },
+
+    cupones: {
+      type: new GraphQLList(CuponRifaType),
+      args: {
+        promocionId: { type: GraphQLInt },
+        limit: { type: GraphQLInt },
+        offset: { type: GraphQLInt }
+      },
+      resolve: async (_, { promocionId, limit, offset }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        const where = promocionId ? { promocionId } : {};
+        return await CuponRifa.findAll({
+          where,
+          limit: limit || 50,
+          offset: offset || 0,
+          order: [['fechaEmision', 'DESC']],
+          include: [
+            { model: PromocionRifa },
+            { model: Factura },
+            { model: Usuario, as: 'usuarioImpresion' }
+          ]
+        });
+      }
+    },
+
+    cuponPorFactura: {
+      type: CuponRifaType,
+      args: { facturaId: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_, { facturaId }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        return await CuponRifa.findOne({
+          where: { facturaId },
+          include: [{ model: PromocionRifa }]
+        });
+      }
+    },
+
+    cuponesPorFactura: {
+      type: new GraphQLList(CuponRifaType),
+      args: { facturaId: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_, { facturaId }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        return await CuponRifa.findAll({
+          where: { facturaId },
+          include: [{ model: PromocionRifa }, { model: Factura }],
+          order: [['fechaEmision', 'ASC']]
+        });
+      }
+    },
+
+    validarElegibilidadCupon: {
+      type: new GraphQLObjectType({
+        name: 'ElegibilidadCupon',
+        fields: {
+          elegible: { type: GraphQLBoolean },
+          promocion: { type: PromocionRifaType },
+          razon: { type: GraphQLString },
+          cantidadCupones: { type: GraphQLInt }
+        }
+      }),
+      args: { facturaId: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_, { facturaId }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        
+        const factura = await Factura.findByPk(facturaId, {
+          include: [{ model: FacturaDetalle, as: 'DetalleFacturas' }]
+        });
+        
+        if (!factura) {
+          return { elegible: false, promocion: null, razon: 'Factura no encontrada', cantidadCupones: 0 };
+        }
+
+        const hoy = new Date().toISOString().split('T')[0];
+        const promocion = await PromocionRifa.findOne({
+          where: {
+            activo: true,
+            fechaInicio: { [Op.lte]: hoy },
+            fechaSorteo: { [Op.gte]: hoy }
+          }
+        });
+
+        if (!promocion) {
+          return { elegible: false, promocion: null, razon: 'No hay promoción activa', cantidadCupones: 0 };
+        }
+
+        // Verificar si ya tiene cupón
+        const cuponExistente = await CuponRifa.findOne({ where: { facturaId } });
+        if (cuponExistente) {
+          return { elegible: false, promocion, razon: 'Ya tiene cupón generado', cantidadCupones: 0 };
+        }
+
+        // Verificar monto mínimo
+        const cumpleMonto = promocion.montoMinimo ? factura.total >= promocion.montoMinimo : true;
+
+        // Verificar cantidad de productos
+        const totalProductos = factura.DetalleFacturas ? factura.DetalleFacturas.reduce((sum, item) => sum + item.cantidad, 0) : 0;
+        const cumpleCantidad = promocion.cantidadProductosMin ? totalProductos >= promocion.cantidadProductosMin : true;
+
+        // Debe cumplir AL MENOS UNO
+        if (!cumpleMonto && !cumpleCantidad) {
+          let razon = 'No cumple los requisitos: ';
+          if (promocion.montoMinimo) razon += `monto mínimo ₡${promocion.montoMinimo}`;
+          if (promocion.cantidadProductosMin) razon += ` o ${promocion.cantidadProductosMin} productos`;
+          return { elegible: false, promocion, razon, cantidadCupones: 0 };
+        }
+
+        // Calcular cantidad de cupones si tiene cupones múltiples habilitados
+        let cantidadCupones = 1;
+        if (promocion.cuponesMultiples && promocion.montoMinimo) {
+          cantidadCupones = Math.floor(factura.total / promocion.montoMinimo);
+        }
+
+        return { elegible: true, promocion, razon: 'Cumple los requisitos', cantidadCupones };
+      }
+    },
+    // ========== FIN QUERIES PROMOCIONES ==========
   }
 });
 
@@ -2268,6 +2494,201 @@ const RootMutation = new GraphQLObjectType({
         return resultados;
       }
     },
+
+    // ========== MUTATIONS DE PROMOCIONES ==========
+    crearPromocion: {
+      type: PromocionRifaType,
+      args: { input: { type: new GraphQLNonNull(PromocionRifaInputType) } },
+      resolve: async (_, { input }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        
+        // Si se quiere activar, desactivar las demás
+        if (input.activo) {
+          await PromocionRifa.update({ activo: false }, { where: { activo: true } });
+        }
+
+        return await PromocionRifa.create(input);
+      }
+    },
+
+    actualizarPromocion: {
+      type: PromocionRifaType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLID) },
+        input: { type: new GraphQLNonNull(PromocionRifaInputType) }
+      },
+      resolve: async (_, { id, input }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        
+        const promocion = await PromocionRifa.findByPk(id);
+        if (!promocion) throw new Error('Promoción no encontrada');
+
+        // Si se quiere activar, desactivar las demás
+        if (input.activo && !promocion.activo) {
+          await PromocionRifa.update({ activo: false }, { where: { activo: true } });
+        }
+
+        await promocion.update(input);
+        return promocion;
+      }
+    },
+
+    eliminarPromocion: {
+      type: GraphQLBoolean,
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      resolve: async (_, { id }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        
+        const promocion = await PromocionRifa.findByPk(id);
+        if (!promocion) throw new Error('Promoción no encontrada');
+
+        // Verificar si tiene cupones asociados
+        const cupones = await CuponRifa.count({ where: { promocionId: id } });
+        if (cupones > 0) {
+          throw new Error('No se puede eliminar una promoción con cupones generados');
+        }
+
+        await promocion.destroy();
+        return true;
+      }
+    },
+
+    generarCupon: {
+      type: new GraphQLList(CuponRifaType),
+      args: { input: { type: new GraphQLNonNull(CuponRifaInputType) } },
+      resolve: async (_, { input }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+
+        const factura = await Factura.findByPk(input.facturaId, {
+          include: [{ model: FacturaDetalle, as: 'DetalleFacturas' }]
+        });
+        
+        if (!factura) throw new Error('Factura no encontrada');
+
+        // Verificar si ya tiene cupón
+        const cuponExistente = await CuponRifa.findOne({ where: { facturaId: input.facturaId } });
+        if (cuponExistente) {
+          throw new Error('Esta factura ya tiene un cupón generado');
+        }
+
+        // Obtener promoción activa
+        const hoy = new Date().toISOString().split('T')[0];
+        const promocion = await PromocionRifa.findOne({
+          where: {
+            activo: true,
+            fechaInicio: { [Op.lte]: hoy },
+            fechaSorteo: { [Op.gte]: hoy }
+          }
+        });
+
+        if (!promocion) throw new Error('No hay promoción activa');
+
+        // Calcular cantidad de cupones
+        let cantidadCupones = 1;
+        if (promocion.cuponesMultiples && promocion.montoMinimo) {
+          cantidadCupones = Math.floor(factura.total / promocion.montoMinimo);
+        }
+
+        // Obtener último número de cupón
+        const año = new Date().getFullYear();
+        const ultimoCupon = await CuponRifa.findOne({
+          where: {
+            numeroCupon: {
+              [Op.like]: `RIFA-${año}-%`
+            }
+          },
+          order: [['id', 'DESC']]
+        });
+
+        let numero = 1;
+        if (ultimoCupon) {
+          const match = ultimoCupon.numeroCupon.match(/RIFA-\d+-(\d+)/);
+          if (match) {
+            numero = parseInt(match[1]) + 1;
+          }
+        }
+
+        // Crear múltiples cupones
+        const cupones = [];
+        for (let i = 0; i < cantidadCupones; i++) {
+          const numeroCupon = `RIFA-${año}-${numero.toString().padStart(5, '0')}`;
+          
+          const cupon = await CuponRifa.create({
+            promocionId: promocion.id,
+            facturaId: input.facturaId,
+            numeroCupon,
+            nombreCliente: input.nombreCliente,
+            telefono: input.telefono,
+            montoFactura: factura.total,
+            impresoporUsuarioId: context.usuario.id
+          });
+
+          cupones.push(cupon);
+          numero++;
+        }
+
+        // Actualizar factura con el primer cupón
+        if (cupones.length > 0) {
+          await factura.update({ cuponRifaId: cupones[0].id });
+        }
+
+        return cupones;
+      }
+    },
+
+    reimprimirCupon: {
+      type: CuponRifaType,
+      args: { 
+        cuponId: { type: GraphQLInt },
+        facturaId: { type: GraphQLInt }
+      },
+      resolve: async (_, { cuponId, facturaId }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+
+        let cupon;
+        if (cuponId) {
+          cupon = await CuponRifa.findByPk(cuponId);
+        } else if (facturaId) {
+          cupon = await CuponRifa.findOne({ where: { facturaId } });
+        }
+
+        if (!cupon) throw new Error('Cupón no encontrado');
+
+        // Actualizar contador de impresiones
+        await cupon.update({
+          vecesImpreso: cupon.vecesImpreso + 1,
+          ultimaImpresion: new Date(),
+          impresoporUsuarioId: context.usuario.id
+        });
+
+        return cupon;
+      }
+    },
+
+    actualizarCupon: {
+      type: CuponRifaType,
+      args: {
+        cuponId: { type: new GraphQLNonNull(GraphQLInt) },
+        nombreCliente: { type: GraphQLString },
+        telefono: { type: GraphQLString }
+      },
+      resolve: async (_, { cuponId, nombreCliente, telefono }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+
+        const cupon = await CuponRifa.findByPk(cuponId);
+        if (!cupon) throw new Error('Cupón no encontrado');
+
+        await cupon.update({
+          nombreCliente: nombreCliente || null,
+          telefono: telefono || null
+        });
+
+        return await CuponRifa.findByPk(cuponId, {
+          include: [{ model: PromocionRifa }]
+        });
+      }
+    },
+    // ========== FIN MUTATIONS PROMOCIONES ==========
   },
 
 });

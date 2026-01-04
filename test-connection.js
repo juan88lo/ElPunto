@@ -13,18 +13,13 @@ async function testConnection() {
         port: process.env.DB_PORT
     };
     
-    console.log('📋 Configuración:');
-    console.log(`   Host: ${config.host}`);
-    console.log(`   Usuario: ${config.user}`);
-    console.log(`   Contraseña: ${config.password ? '***' + config.password.slice(-3) : 'VACÍA'}`);
-    console.log(`   Base de datos: ${config.database}`);
-    console.log(`   Puerto: ${config.port}\n`);
+ 
     
     try {
-        console.log('🔄 Intentando conectar...');
+        console.log(  Intentando conectar...');
         const connection = await mysql.createConnection(config);
         
-        console.log('✅ ¡Conexión exitosa!');
+        console.log('  ¡Conexión exitosa!');
         
         // Probar una consulta simple
         const [rows] = await connection.execute('SELECT 1 as test, NOW() as fecha');
