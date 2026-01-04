@@ -20,6 +20,8 @@ const PagoProveedor = require('./PagoProveedor');
 const Planilla = require('./Planilla');
 const ConsecutivoFactura = require('./ConsecutivoFactura');
 const VacacionTomada = require('./VacacionesTomadas');
+const PromocionRifa = require('./PromocionRifa');
+const CuponRifa = require('./CuponRifa');
 // Relaciones existentes
 TipoUsuario.hasMany(Usuario, { foreignKey: 'tipoUsuarioId' });
 Usuario.belongsTo(TipoUsuario, { foreignKey: 'tipoUsuarioId' });
@@ -72,6 +74,16 @@ Bitacora.belongsTo(NotaCredito, { foreignKey: 'entidadId', constraints: false })
 Empleado.hasMany(Planilla, { foreignKey: 'empleadoId' });
 Planilla.belongsTo(Empleado, { foreignKey: 'empleadoId' });
 
+// Relaciones de Promociones y Cupones de Rifa
+PromocionRifa.hasMany(CuponRifa, { foreignKey: 'promocionId' });
+CuponRifa.belongsTo(PromocionRifa, { foreignKey: 'promocionId' });
+
+Factura.hasOne(CuponRifa, { foreignKey: 'facturaId' });
+CuponRifa.belongsTo(Factura, { foreignKey: 'facturaId' });
+
+Usuario.hasMany(CuponRifa, { foreignKey: 'impresoporUsuarioId' });
+CuponRifa.belongsTo(Usuario, { foreignKey: 'impresoporUsuarioId', as: 'usuarioImpresion' });
+
 module.exports = {
   sequelize,
   Usuario,
@@ -92,5 +104,7 @@ module.exports = {
   PagoProveedor,
   Planilla,
   ConsecutivoFactura,
-  VacacionTomada
+  VacacionTomada,
+  PromocionRifa,
+  CuponRifa
 };

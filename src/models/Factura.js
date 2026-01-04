@@ -19,6 +19,12 @@ Factura.init(
     montoEfectivo: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
     montoTarjeta: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
     estado: { type: DataTypes.ENUM('emitida', 'anulada', 'devuelta'), defaultValue: 'emitida' },
+    // Campo para cupón de rifa (la foreign key se crea en la migración)
+    cuponRifaId: { 
+      type: DataTypes.INTEGER, 
+      allowNull: true,
+      comment: 'ID del cupón de rifa asociado a esta factura'
+    }
   },
   { sequelize, modelName: 'Factura', tableName: 'Facturas', timestamps: false }
 );

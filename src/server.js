@@ -49,9 +49,14 @@ const server = new ApolloServer({
 
 (async () => {
   try {
-    // Sincronizar la base de datos
+    // Sincronizar la base de datos (crea/actualiza tablas según modelos)
+    console.log('🔄 Sincronizando modelos con base de datos...');
     await sequelize.sync({ alter: true });
-    console.log('Base de datos sincronizada');
+    console.log('✅ Base de datos sincronizada');
+
+    // Crear triggers para promociones (no se pueden crear con Sequelize)
+    const createPromocionTriggers = require('../config/createPromocionTriggers');
+    await createPromocionTriggers();
 
     // Iniciar tareas programadas
     require('./tareas/scheduler')({ Caja, Factura, Bitacora });
