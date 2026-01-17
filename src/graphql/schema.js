@@ -258,6 +258,7 @@ const PromocionRifaType = new GraphQLObjectType({
     fechaSorteo: { type: GraphQLString },
     montoMinimo: { type: GraphQLFloat },
     cantidadProductosMin: { type: GraphQLInt },
+    operadorLogico: { type: GraphQLString },
     activo: { type: GraphQLBoolean },
     totalCupones: { type: GraphQLInt },
     totalVentas: { type: GraphQLFloat },
@@ -307,6 +308,7 @@ const PromocionRifaInputType = new GraphQLInputObjectType({
     fechaSorteo: { type: new GraphQLNonNull(GraphQLString) },
     montoMinimo: { type: GraphQLFloat },
     cantidadProductosMin: { type: GraphQLInt },
+    operadorLogico: { type: GraphQLString },
     activo: { type: GraphQLBoolean },
     cuponesMultiples: { type: GraphQLBoolean }
   }
@@ -1141,12 +1143,39 @@ const RootQuery = new GraphQLObjectType({
         const totalProductos = factura.DetalleFacturas ? factura.DetalleFacturas.reduce((sum, item) => sum + item.cantidad, 0) : 0;
         const cumpleCantidad = promocion.cantidadProductosMin ? totalProductos >= promocion.cantidadProductosMin : true;
 
-        // Debe cumplir AL MENOS UNO
-        if (!cumpleMonto && !cumpleCantidad) {
-          let razon = 'No cumple los requisitos: ';
-          if (promocion.montoMinimo) razon += `monto mínimo ₡${promocion.montoMinimo}`;
-          if (promocion.cantidadProductosMin) razon += ` o ${promocion.cantidadProductosMin} productos`;
-          return { elegible: false, promocion, razon, cantidadCupones: 0 };
+        // Obtener operador lógico (por defecto 'O' si no está definido para mantener compatibilidad)
+        const operador = promocion.operadorLogico || 'O';
+        
+        // Validar según el operador lógico seleccionado
+        let esElegible = false;
+        if (operador === 'Y') {
+          // Modo AND: Debe cumplir TODAS las condiciones que estén configuradas
+          esElegible = cumpleMonto && cumpleCantidad;
+          if (!esElegible) {
+            let razon = 'No cumple los requisitos (deben cumplirse AMBOS): ';
+            const razones = [];
+            if (promocion.montoMinimo && !cumpleMonto) razones.push(`monto mínimo ₡${promocion.montoMinimo.toFixed(2)} (actual: ₡${factura.total.toFixed(2)})`);
+            if (promocion.cantidadProductosMin && !cumpleCantidad) razones.push(`${promocion.cantidadProductosMin} productos mínimo (actual: ${totalProductos})`);
+            razon += razones.join(' Y ');
+            return { elegible: false, promocion, razon, cantidadCupones: 0 };
+          }
+        } else {
+          // Modo OR: Debe cumplir AL MENOS UNO de los requisitos
+          // Si no hay requisitos configurados, no es elegible
+          const tieneRequisitos = promocion.montoMinimo || promocion.cantidadProductosMin;
+          if (!tieneRequisitos) {
+            return { elegible: false, promocion, razon: 'La promoción no tiene requisitos configurados', cantidadCupones: 0 };
+          }
+          
+          esElegible = cumpleMonto || cumpleCantidad;
+          if (!esElegible) {
+            let razon = 'No cumple los requisitos (debe cumplir AL MENOS UNO): ';
+            const razones = [];
+            if (promocion.montoMinimo) razones.push(`monto mínimo ₡${promocion.montoMinimo.toFixed(2)} (actual: ₡${factura.total.toFixed(2)})`);
+            if (promocion.cantidadProductosMin) razones.push(`${promocion.cantidadProductosMin} productos mínimo (actual: ${totalProductos})`);
+            razon += razones.join(' O ');
+            return { elegible: false, promocion, razon, cantidadCupones: 0 };
+          }
         }
 
         // Calcular cantidad de cupones si tiene cupones múltiples habilitados
