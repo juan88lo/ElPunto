@@ -48,6 +48,9 @@ Inventario.belongsTo(Proveedor, { foreignKey: 'proveedorId' });
 Caja.hasMany(Factura, { foreignKey: 'cajaId' });
 Factura.belongsTo(Caja, { foreignKey: 'cajaId' });
 
+Usuario.hasMany(Factura, { foreignKey: 'usuarioId' });
+Factura.belongsTo(Usuario, { foreignKey: 'usuarioId' });
+
 Factura.hasMany(DetalleFactura, { foreignKey: 'facturaId' });
 DetalleFactura.belongsTo(Factura, { foreignKey: 'facturaId' });
 

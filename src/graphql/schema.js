@@ -948,15 +948,55 @@ const RootQuery = new GraphQLObjectType({
     // — facturas emitidas para notas de credito —
     facturasEmitidas: {
       type: new GraphQLList(FacturaType),
-      resolve: async (_, __, context) => {
+      args: {
+        busqueda: { type: GraphQLString },
+        fechaDesde: { type: GraphQLString },
+        fechaHasta: { type: GraphQLString },
+        usuarioId: { type: GraphQLInt },
+        limit: { type: GraphQLInt },
+      },
+      resolve: async (_, args, context) => {
         if (!(await context.verificarPermiso('ver_facturas'))) {
           throw new Error('Sin permiso para ver facturas');
         }
 
+        const { Op } = require('sequelize');
+        const where = { estado: 'emitida' };
+
+        // Filtro por búsqueda en consecutivo
+        if (args.busqueda) {
+          where.consecutivo = { [Op.like]: `%${args.busqueda}%` };
+        }
+
+        // Filtro por rango de fechas
+        if (args.fechaDesde || args.fechaHasta) {
+          where.fecha = {};
+          if (args.fechaDesde) {
+            where.fecha[Op.gte] = new Date(args.fechaDesde);
+          }
+          if (args.fechaHasta) {
+            // Agregar 1 día para incluir todo el día seleccionado
+            const fechaHastaDate = new Date(args.fechaHasta);
+            fechaHastaDate.setDate(fechaHastaDate.getDate() + 1);
+            where.fecha[Op.lt] = fechaHastaDate;
+          }
+        }
+
+        // Filtro por usuario
+        if (args.usuarioId) {
+          where.usuarioId = args.usuarioId;
+        }
+
         return Factura.findAll({
-          where: { estado: 'emitida' },
+          where,
           order: [['fecha', 'DESC']],
-          limit: 100, // opcional
+          limit: args.limit || 500, // Incrementado de 100 a 500
+          include: [
+            {
+              model: Usuario,
+              attributes: ['id', 'nombre']
+            }
+          ]
         });
       }
     },
