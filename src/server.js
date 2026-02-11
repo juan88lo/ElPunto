@@ -3,6 +3,7 @@ const express = require('express');
 const { createServer } = require('http');
 const { ApolloServer } = require('apollo-server-express');
 const jwt = require('jsonwebtoken');
+const cors = require('cors');
 
 const {
   sequelize,
@@ -18,10 +19,30 @@ const {
 const schema = require('./graphql/schema');
 const verificarPermiso = require('../src/utils/permisos');
 const path = require('path');
+
+// Inicializar Express
 const app = express();
+
+// Configuración CORS - Permite todos los orígenes en producción
+const corsOptions = {
+  origin: true, // Permite todos los orígenes
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  optionsSuccessStatus: 200
+};
+
+// Aplicar middleware CORS antes de cualquier otra cosa
+app.use(cors(corsOptions));
+
+// Servir archivos estáticos
 app.use('/archivos', express.static(path.join(__dirname, 'generated')));
+
+// Configurar Apollo Server
 const server = new ApolloServer({
   schema,
+  cache: 'bounded',
+  persistedQueries: false,
   context: async ({ req }) => {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -40,11 +61,7 @@ const server = new ApolloServer({
       verificarPermiso: (permiso) =>
         verificarPermiso(permiso, usuario?.id),
     };
-  },
-  cors: {
-    origin: '*',
-    methods: 'GET,POST',
-  },
+  }
 });
 
 (async () => {
@@ -63,13 +80,18 @@ const server = new ApolloServer({
 
     // Iniciar Apollo Server y montarlo en Express
     await server.start();
-    server.applyMiddleware({ app });
+    server.applyMiddleware({ 
+      app,
+      cors: false // Desactivar CORS de Apollo porque ya está configurado en Express
+    });
 
     // Crear servidor HTTP
     const httpServer = createServer(app);
     const PORT = process.env.PORT || 4000;
-    httpServer.listen({ port: PORT }, () => {
-      console.log(`Servidor GraphQL listo en http://localhost:${PORT}${server.graphqlPath}`);
+    const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
+    
+    httpServer.listen({ port: PORT, host: HOST }, () => {
+      console.log(`Servidor GraphQL listo en http://${HOST}:${PORT}${server.graphqlPath}`);
     });
   } catch (error) {
     console.error('Error al iniciar el servidor:', error);
