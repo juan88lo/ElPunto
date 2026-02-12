@@ -94,11 +94,9 @@ const server = new ApolloServer({
     const httpServer = createServer(app);
     const PORT = process.env.PORT || 4000;
     
-    // Iniciar servidor y esperar a que realmente esté escuchando
-    httpServer.listen(PORT, '0.0.0.0');
-    
-    await new Promise((resolve) => {
-      httpServer.once('listening', () => {
+    // Iniciar servidor
+    await new Promise(resolve => {
+      httpServer.listen(PORT, '0.0.0.0', () => {
         console.log(`Servidor GraphQL listo en http://0.0.0.0:${PORT}${server.graphqlPath}`);
         resolve();
       });
