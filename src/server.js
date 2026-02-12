@@ -71,19 +71,7 @@ const server = new ApolloServer({
 
 (async () => {
   try {
-    // Sincronizar la base de datos (crea/actualiza tablas según modelos)
-    console.log('🔄 Sincronizando modelos con base de datos...');
-    await sequelize.sync({ alter: true });
-    console.log('✅ Base de datos sincronizada');
-
-    // Crear triggers para promociones (no se pueden crear con Sequelize)
-    const createPromocionTriggers = require('../config/createPromocionTriggers');
-    await createPromocionTriggers();
-
-    // Iniciar tareas programadas
-    require('./tareas/scheduler')({ Caja, Factura, Bitacora });
-
-    // Iniciar Apollo Server y montarlo en Express
+    // Iniciar Apollo Server primero
     await server.start();
     server.applyMiddleware({ 
       app,
@@ -95,17 +83,35 @@ const server = new ApolloServer({
     const PORT = process.env.PORT || 4000;
     const HOST = '0.0.0.0';
     
-    // Iniciar servidor - Railway compatible
+    // Iniciar servidor PRIMERO - Railway necesita esto rápido
     await new Promise((resolve, reject) => {
       httpServer.listen({ port: PORT, host: HOST }, () => {
-        console.log(`🚀 Servidor GraphQL listo en http://${HOST}:${PORT}${server.graphqlPath}`);
-        console.log(`📡 Servidor HTTP escuchando en ${HOST}:${PORT}`);
+        console.log(`🚀 Servidor HTTP escuchando en ${HOST}:${PORT}`);
+        console.log(`📡 GraphQL endpoint: http://${HOST}:${PORT}${server.graphqlPath}`);
         resolve();
       }).on('error', (err) => {
         console.error('❌ Error al iniciar servidor:', err);
         reject(err);
       });
     });
+
+    // DESPUÉS sincronizar base de datos en background (no bloquear el inicio)
+    console.log('🔄 Sincronizando modelos con base de datos...');
+    sequelize.sync({ alter: false }).then(async () => {
+      console.log('✅ Base de datos sincronizada');
+      
+      // Crear triggers para promociones
+      const createPromocionTriggers = require('../config/createPromocionTriggers');
+      await createPromocionTriggers();
+      
+      // Iniciar tareas programadas
+      require('./tareas/scheduler')({ Caja, Factura, Bitacora });
+      
+      console.log('✅ Sistema completamente inicializado');
+    }).catch(err => {
+      console.error('⚠️ Error al sincronizar base de datos:', err);
+    });
+
   } catch (error) {
     console.error('Error al iniciar el servidor:', error);
     process.exit(1);
