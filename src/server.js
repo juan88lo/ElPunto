@@ -35,6 +35,11 @@ const corsOptions = {
 // Aplicar middleware CORS antes de cualquier otra cosa
 app.use(cors(corsOptions));
 
+// Health check endpoint para Railway
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // Servir archivos estáticos
 app.use('/archivos', express.static(path.join(__dirname, 'generated')));
 
@@ -89,9 +94,11 @@ const server = new ApolloServer({
     const httpServer = createServer(app);
     const PORT = process.env.PORT || 4000;
     
-    // Iniciar servidor con promesa para asegurar que está escuchando
+    // Iniciar servidor y esperar a que realmente esté escuchando
+    httpServer.listen(PORT, '0.0.0.0');
+    
     await new Promise((resolve) => {
-      httpServer.listen(PORT, '0.0.0.0', () => {
+      httpServer.once('listening', () => {
         console.log(`Servidor GraphQL listo en http://0.0.0.0:${PORT}${server.graphqlPath}`);
         resolve();
       });
