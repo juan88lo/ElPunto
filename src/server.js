@@ -93,12 +93,17 @@ const server = new ApolloServer({
     // Crear servidor HTTP
     const httpServer = createServer(app);
     const PORT = process.env.PORT || 4000;
+    const HOST = '0.0.0.0';
     
-    // Iniciar servidor
-    await new Promise(resolve => {
-      httpServer.listen(PORT, '0.0.0.0', () => {
-        console.log(`Servidor GraphQL listo en http://0.0.0.0:${PORT}${server.graphqlPath}`);
+    // Iniciar servidor - Railway compatible
+    await new Promise((resolve, reject) => {
+      httpServer.listen({ port: PORT, host: HOST }, () => {
+        console.log(`🚀 Servidor GraphQL listo en http://${HOST}:${PORT}${server.graphqlPath}`);
+        console.log(`📡 Servidor HTTP escuchando en ${HOST}:${PORT}`);
         resolve();
+      }).on('error', (err) => {
+        console.error('❌ Error al iniciar servidor:', err);
+        reject(err);
       });
     });
   } catch (error) {
