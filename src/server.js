@@ -17,8 +17,8 @@ const {
 } = require('./models');
 
 const schema = require('./graphql/schema');
-const verificarPermiso = require('../src/utils/permisos');
-const path = require('path');
+const verificarPermiso = require('./utils/permisos');
+const createPromocionTriggers = require('./config/createPromocionTriggers');
 
 // Inicializar Express
 const app = express();
