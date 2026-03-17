@@ -15,11 +15,12 @@ const {
   Caja,
   Factura,
   Bitacora
-} = require('./models');
+} = require('./src/models');
 
-const schema = require('./graphql/schema');
-const verificarPermiso = require('./utils/permisos');
+const schema = require('./src/graphql/schema');
+const verificarPermiso = require('./src/utils/permisos');
 const createPromocionTriggers = require('./config/createPromocionTriggers');
+const runAutoMigrations = require('./src/scripts/autoMigrations');
 
 // Configuración CORS
 const corsOptions = {
@@ -67,8 +68,8 @@ const server = new ApolloServer({
 // Función principal de inicio
 async function startServer() {
   try {
-    // Ejecutar migraciones automáticas de Wirepos
-    await migrateWireposColumns();
+    // Ejecutar migraciones automáticas (idempotencyKey, etc.)
+    await runAutoMigrations();
     
     // Sincronizar la base de datos (crea/actualiza tablas según modelos)
     console.log('🔄 Sincronizando modelos con base de datos...');
@@ -79,7 +80,7 @@ async function startServer() {
     await createPromocionTriggers();
 
     // Iniciar tareas programadas
-    require('./tareas/scheduler')({ Caja, Factura, Bitacora });
+    require('./src/tareas/scheduler')({ Caja, Factura, Bitacora });
 
     // Iniciar Apollo Server y montarlo en Express
     await server.start();
