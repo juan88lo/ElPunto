@@ -23,7 +23,8 @@ const {
   Proveedor,
   Inventario,
   ConsecutivoFactura, NotaCredito, DetalleNotaCredito, PagoProveedor, Planilla, VacacionTomada,
-  PromocionRifa, CuponRifa
+  PromocionRifa, CuponRifa,
+  ErrorLog
 } = require('../models');
 const { Empleado } = require('../models');
 const { DetalleFactura: FacturaDetalle } = require('../models');
@@ -33,6 +34,7 @@ const { Caja, Factura, Bitacora } = require('../models');
 const { sequelize, Sequelize } = require('../models/baseModel');
 const { Op, fn, col, literal } = require('sequelize');
 const e = require('cors');
+const { logError, resolveError: resolveErrorUtil, getErrorStats } = require('../utils/errorLogger');
 
 
 
@@ -200,6 +202,8 @@ const FacturaInputType = new GraphQLInputObjectType({
     // Campos para pago mixto
     montoEfectivo: { type: GraphQLFloat },
     montoTarjeta: { type: GraphQLFloat },
+    // Idempotency key para prevenir duplicados
+    idempotencyKey: { type: GraphQLString },
   },
 });
 
@@ -324,6 +328,44 @@ const CuponRifaInputType = new GraphQLInputObjectType({
 });
 
 // ========== FIN TIPOS PROMOCIONES ==========
+
+// ========== TIPOS PARA ERROR LOGS ==========
+
+const ErrorLogType = new GraphQLObjectType({
+  name: 'ErrorLog',
+  fields: () => ({
+    id: { type: GraphQLID },
+    errorCode: { type: GraphQLString },
+    errorMessage: { type: GraphQLString },
+    stackTrace: { type: GraphQLString },
+    context: { 
+      type: GraphQLString,
+      resolve: (parent) => parent.context ? JSON.stringify(parent.context) : null
+    },
+    severity: { type: GraphQLString },
+    resolved: { type: GraphQLBoolean },
+    resolvedBy: { type: GraphQLInt },
+    resolvedAt: { type: GraphQLString },
+    notes: { type: GraphQLString },
+    timestamp: { type: GraphQLString },
+    resolvedByUser: {
+      type: UsuarioType,
+      resolve: parent => parent.resolvedBy ? Usuario.findByPk(parent.resolvedBy) : null
+    }
+  })
+});
+
+const ErrorStatsType = new GraphQLObjectType({
+  name: 'ErrorStats',
+  fields: {
+    totalErrors: { type: GraphQLInt },
+    unresolvedErrors: { type: GraphQLInt },
+    bySeverity: { type: GraphQLString }, // JSON string
+    topErrors: { type: GraphQLString } // JSON string
+  }
+});
+
+// ========== FIN TIPOS ERROR LOGS ==========
 
 /* ---- INPUT para crear/actualizar roles ---- */
 const TipoUsuarioInputType = new GraphQLInputObjectType({
@@ -1228,6 +1270,78 @@ const RootQuery = new GraphQLObjectType({
       }
     },
     // ========== FIN QUERIES PROMOCIONES ==========
+
+    // ========== QUERIES ERROR LOGS ==========
+    errorLogs: {
+      type: new GraphQLList(ErrorLogType),
+      args: {
+        severity: { type: GraphQLString },
+        resolved: { type: GraphQLBoolean },
+        errorCode: { type: GraphQLString },
+        limit: { type: GraphQLInt, defaultValue: 100 },
+        offset: { type: GraphQLInt, defaultValue: 0 }
+      },
+      resolve: async (_, { severity, resolved, errorCode, limit, offset }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('ver_error_logs'))) {
+          throw new Error('Sin permiso para ver logs de errores');
+        }
+
+        const where = {};
+        if (severity) where.severity = severity;
+        if (resolved !== undefined) where.resolved = resolved;
+        if (errorCode) where.errorCode = errorCode;
+
+        return await ErrorLog.findAll({
+          where,
+          order: [['timestamp', 'DESC']],
+          limit,
+          offset
+        });
+      }
+    },
+
+    errorLog: {
+      type: ErrorLogType,
+      args: {
+        id: { type: new GraphQLNonNull(GraphQLInt) }
+      },
+      resolve: async (_, { id }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('ver_error_logs'))) {
+          throw new Error('Sin permiso para ver logs de errores');
+        }
+
+        return await ErrorLog.findByPk(id);
+      }
+    },
+
+    errorStats: {
+      type: ErrorStatsType,
+      args: {
+        startDate: { type: GraphQLString },
+        endDate: { type: GraphQLString }
+      },
+      resolve: async (_, { startDate, endDate }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('ver_error_logs'))) {
+          throw new Error('Sin permiso para ver estadísticas de errores');
+        }
+
+        const stats = await getErrorStats(
+          startDate ? new Date(startDate) : null,
+          endDate ? new Date(endDate) : null
+        );
+
+        return {
+          totalErrors: stats.totalErrors,
+          unresolvedErrors: stats.unresolvedErrors,
+          bySeverity: JSON.stringify(stats.bySeverity),
+          topErrors: JSON.stringify(stats.topErrors)
+        };
+      }
+    },
+    // ========== FIN QUERIES ERROR LOGS ==========
   }
 });
 
@@ -1917,7 +2031,36 @@ const RootMutation = new GraphQLObjectType({
         if (!(await ctx.verificarPermiso('crear_factura')))
           throw new Error('Sin permiso');
 
-        const { cajaId, usuarioId, formaPago, productos, montoEfectivo, montoTarjeta } = input;
+        const { cajaId, usuarioId, formaPago, productos, montoEfectivo, montoTarjeta, idempotencyKey } = input;
+
+        // ═══ VALIDACIÓN DE IDEMPOTENCY KEY ═══
+        // Si se proporciona un idempotency key, verificar si ya existe una factura con ese key
+        if (idempotencyKey) {
+          const facturaExistente = await Factura.findOne({
+            where: { idempotencyKey: idempotencyKey }
+          });
+          
+          if (facturaExistente) {
+            // Factura ya existe - devolver la factura existente en lugar de crear duplicado
+            console.log(`⚠️ Intento de duplicación prevenido - idempotencyKey: ${idempotencyKey}`);
+            
+            // Registrar en log de errores
+            await logError({
+              code: 'FACTURA_DUPLICADA_PREVENIDA',
+              message: `Intento de crear factura duplicada prevenido por idempotency key`,
+              context: {
+                idempotencyKey,
+                facturaExistenteId: facturaExistente.id,
+                consecutivo: facturaExistente.consecutivo,
+                usuarioId,
+                cajaId
+              },
+              severity: 'warning'
+            });
+            
+            return facturaExistente;
+          }
+        }
 
         const t = await sequelize.transaction();
         try {
@@ -1935,6 +2078,22 @@ const RootMutation = new GraphQLObjectType({
               throw new Error(`Producto con código ${p.codigoBarras} no existe`);
             }
             if (item.cantidadExistencias < p.cantidad) {
+              // Log de error de stock insuficiente
+              await logError({
+                code: 'STOCK_INSUFICIENTE',
+                message: `Stock insuficiente para producto: ${item.nombre}`,
+                context: {
+                  productoId: item.id,
+                  codigoBarras: p.codigoBarras,
+                  productoNombre: item.nombre,
+                  stockDisponible: item.cantidadExistencias,
+                  cantidadSolicitada: p.cantidad,
+                  usuarioId,
+                  cajaId
+                },
+                severity: 'warning'
+              });
+              
               throw new Error(
                 `Producto ${item.nombre} — stock ${item.cantidadExistencias}, solicitado ${p.cantidad}`
               );
@@ -2004,6 +2163,11 @@ const RootMutation = new GraphQLObjectType({
             facturaData.montoTarjeta = parseFloat(montoTarjeta);
           }
 
+          // Agregar idempotency key si se proporcionó
+          if (idempotencyKey) {
+            facturaData.idempotencyKey = idempotencyKey;
+          }
+
           const factura = await Factura.create(facturaData, { transaction: t });
 
           for (const d of detalles) {
@@ -2047,6 +2211,25 @@ const RootMutation = new GraphQLObjectType({
           return factura;
         } catch (err) {
           await t.rollback();
+
+          // Registrar error en el log
+          await logError({
+            code: 'FACTURA_CREATION_FAILED',
+            message: `Error al crear factura: ${err.message}`,
+            context: {
+              cajaId,
+              usuarioId,
+              formaPago,
+              productos: productos.map(p => ({
+                codigoBarras: p.codigoBarras,
+                cantidad: p.cantidad
+              })),
+              idempotencyKey,
+              errorDetails: err.errors?.map(e => `${e.path}: ${e.message}`).join(' | ')
+            },
+            severity: 'error',
+            stackTrace: err.stack
+          });
 
           const detalles =
             err.errors?.map((e) => `${e.path}: ${e.message}`).join(' | ') ||
@@ -2758,6 +2941,27 @@ const RootMutation = new GraphQLObjectType({
       }
     },
     // ========== FIN MUTATIONS PROMOCIONES ==========
+
+    // ========== MUTATIONS ERROR LOGS ==========
+    resolveError: {
+      type: ErrorLogType,
+      args: {
+        errorId: { type: new GraphQLNonNull(GraphQLInt) },
+        notes: { type: GraphQLString }
+      },
+      resolve: async (_, { errorId, notes }, context) => {
+        if (!context.usuario) throw new Error('No autenticado');
+        if (!(await context.verificarPermiso('resolver_error_logs'))) {
+          throw new Error('Sin permiso para resolver logs de errores');
+        }
+
+        const error = await resolveErrorUtil(errorId, context.usuario.id, notes);
+        if (!error) throw new Error('Error log no encontrado');
+
+        return error;
+      }
+    },
+    // ========== FIN MUTATIONS ERROR LOGS ==========
   },
 
 });

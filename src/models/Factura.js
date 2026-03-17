@@ -24,6 +24,13 @@ Factura.init(
       type: DataTypes.INTEGER, 
       allowNull: true,
       comment: 'ID del cupón de rifa asociado a esta factura'
+    },
+    // Campo para prevenir duplicación de facturas (idempotency key)
+    idempotencyKey: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      unique: true,
+      comment: 'UUID único para prevenir duplicación de facturas por problemas de red'
     }
   },
   { sequelize, modelName: 'Factura', tableName: 'Facturas', timestamps: false }

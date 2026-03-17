@@ -22,6 +22,7 @@ const ConsecutivoFactura = require('./ConsecutivoFactura');
 const VacacionTomada = require('./VacacionesTomadas');
 const PromocionRifa = require('./PromocionRifa');
 const CuponRifa = require('./CuponRifa');
+const ErrorLog = require('./ErrorLog');
 // Relaciones existentes
 TipoUsuario.hasMany(Usuario, { foreignKey: 'tipoUsuarioId' });
 Usuario.belongsTo(TipoUsuario, { foreignKey: 'tipoUsuarioId' });
@@ -109,5 +110,6 @@ module.exports = {
   ConsecutivoFactura,
   VacacionTomada,
   PromocionRifa,
-  CuponRifa
+  CuponRifa,
+  ErrorLog
 };
